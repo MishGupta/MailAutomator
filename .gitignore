@@ -1,0 +1,12 @@
+# secrets & generated
+config.ini
+sent_log.csv
+contacts.csv
+*.resume.pdf
+resume.pdf
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

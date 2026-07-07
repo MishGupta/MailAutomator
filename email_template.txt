@@ -1,0 +1,12 @@
+Subject: Application for opportunities at {company}
+
+Dear {name},
+
+I came across your profile as {title} at {company} and wanted to reach out.
+I'm keen to contribute to {company} and have attached my resume for your
+consideration.
+
+Thank you for your time.
+
+Best regards,
+Your Name

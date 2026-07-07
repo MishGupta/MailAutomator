@@ -1,0 +1,13 @@
+[gmail]
+address = infogupta007@gmail.com
+app_password = xxxx xxxx xxxx xxxx
+
+[files]
+resume = resume.pdf
+template = email_template.txt
+contacts = contacts.csv
+
+[send]
+daily_limit = 400
+delay_seconds = 2
+cc_self = false
