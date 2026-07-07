@@ -41,3 +41,48 @@ def load_contacts_csv(path: str) -> list:
                 company=(row.get("company") or "").strip(),
             ))
     return out
+
+
+def find_email(cells: list) -> tuple:
+    for i, c in enumerate(cells):
+        m = EMAIL_RE.search((c or "").strip())
+        if m:
+            return i, m.group(0)
+    return -1, ""
+
+
+def parse_rows(rows: list) -> list:
+    contacts = []
+    for row in rows:
+        cells = [(c or "").strip() for c in row]
+        idx, email = find_email(cells)
+        if idx == -1:
+            continue  # header or non-data row
+        before = cells[:idx]
+        after = [a for a in cells[idx + 1:] if a]
+        if before and before[0].isdigit():
+            before = before[1:]  # drop serial number
+        name = " ".join(p for p in before if p).strip()
+        if len(after) >= 2:
+            title = " ".join(after[:-1]).strip()
+            company = after[-1].strip()
+        elif len(after) == 1:
+            title = ""
+            company = after[0].strip()
+        else:
+            title = ""
+            company = ""
+        contacts.append(Contact(name=name, email=email, title=title, company=company))
+    return contacts
+
+
+def parse_pdf(path: str) -> list:
+    import pdfplumber
+
+    rows = []
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            for table in page.extract_tables():
+                for row in table:
+                    rows.append(row)
+    return parse_rows(rows)
