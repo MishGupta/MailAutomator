@@ -43,3 +43,44 @@ def test_load_config_missing_resume(tmp_path):
     cfg = _write_config(tmp_path, tmp_path / "missing.pdf", t, c)
     with pytest.raises(FileNotFoundError):
         load_config(str(cfg))
+
+
+def test_load_config_defaults_when_send_section_absent(tmp_path):
+    r = tmp_path / "resume.pdf"; r.write_text("x")
+    t = tmp_path / "email_template.txt"; t.write_text("Subject: hi\n\nbody")
+    c = tmp_path / "contacts.csv"; c.write_text("name,email,title,company\n")
+    cfg = tmp_path / "config.ini"
+    cfg.write_text(
+        "[gmail]\naddress = a@b.com\napp_password = pw\n"
+        f"[files]\nresume = {r}\ntemplate = {t}\ncontacts = {c}\n"
+    )
+    conf = load_config(str(cfg))
+    assert conf.daily_limit == 400
+    assert conf.delay_seconds == 2.0
+    assert conf.cc_self is False
+
+
+def test_load_config_missing_address_raises_value_error(tmp_path):
+    r = tmp_path / "resume.pdf"; r.write_text("x")
+    t = tmp_path / "email_template.txt"; t.write_text("Subject: hi\n\nbody")
+    c = tmp_path / "contacts.csv"; c.write_text("name,email,title,company\n")
+    cfg = tmp_path / "config.ini"
+    cfg.write_text(
+        "[gmail]\napp_password = pw\n"
+        f"[files]\nresume = {r}\ntemplate = {t}\ncontacts = {c}\n"
+    )
+    with pytest.raises(ValueError):
+        load_config(str(cfg))
+
+
+def test_load_config_allows_percent_in_password(tmp_path):
+    r = tmp_path / "resume.pdf"; r.write_text("x")
+    t = tmp_path / "email_template.txt"; t.write_text("Subject: hi\n\nbody")
+    c = tmp_path / "contacts.csv"; c.write_text("name,email,title,company\n")
+    cfg = tmp_path / "config.ini"
+    cfg.write_text(
+        "[gmail]\naddress = a@b.com\napp_password = ab%cd\n"
+        f"[files]\nresume = {r}\ntemplate = {t}\ncontacts = {c}\n"
+    )
+    conf = load_config(str(cfg))
+    assert conf.app_password == "ab%cd"
