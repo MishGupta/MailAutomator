@@ -1,16 +1,14 @@
-Subject: Can I earn 5 minutes of your attention?
+Subject: 3 AI internships, an IEEE paper, and one ask for {company}
 
 Dear {name},
 
-I hope you're doing well.
+I'm Mishka Gupta, a 2026 Computer Science graduate from Symbiosis Institute of Technology, Pune. I've completed three AI internships and published an IEEE paper, and I build production LLM systems — RAG pipelines, semantic search, and AI automation tools.
 
-I'm Mishka Gupta, a final-year Computer Science student at Symbiosis Institute of Technology, Pune (2026).
+Here's the ask: is {company} hiring AI/ML or Software Engineering graduates this cycle? If someone else on your team owns early-career hiring, I'd be grateful for a pointer to them.
 
-I've completed 3 AI internships, published an IEEE paper, and worked on LLM applications, RAG systems, semantic search, and AI automation products.
+My resume is attached, and my projects and code are at https://mishgupta.pythonanywhere.com/
 
-I'm currently exploring full-time opportunities in AI/ML and Software Engineering. I've attached my resume and would appreciate it if you could keep my profile in mind for any current or future openings at {company}.
-
-You can also view my portfolio here: https://mishgupta.pythonanywhere.com/, where you'll find details of my projects, technical experience, and work.
+Thank you for your time.
 
 Best regards,
 Mishka Gupta
