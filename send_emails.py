@@ -10,13 +10,15 @@ from mailauto.sentlog import load_sent, append_result
 from mailauto.planner import select_pending
 from mailauto import mailer
 
+SENT_LOG = "sent_log.csv"
+
 
 def _load_all(args):
     conf = load_config(args.config)
     with open(conf.template_path, encoding="utf-8") as f:
         subject_t, body_t = parse_template(f.read())
     contacts = load_contacts_csv(conf.contacts_path)
-    sent = load_sent()
+    sent = load_sent(SENT_LOG)
     return conf, subject_t, body_t, contacts, sent
 
 
@@ -63,6 +65,9 @@ def cmd_test(conf, subject_t, body_t, contacts):
         return 1
     try:
         mailer.send(smtp, msg)
+    except Exception as e:
+        print(f"ERROR: test send failed: {e}", file=sys.stderr)
+        return 1
     finally:
         smtp.quit()
     print(f"Test email sent to yourself ({conf.address}). Check your inbox.")
@@ -91,11 +96,11 @@ def cmd_send(conf, subject_t, body_t, contacts, sent):
                 msg = mailer.build_message(conf.address, c.email, subject, body,
                                            conf.resume_path, cc_self=cc)
                 mailer.send(smtp, msg)
-                append_result("sent_log.csv", c.email, "sent")
+                append_result(SENT_LOG, c.email, "sent")
                 ok += 1
                 print(f"  [{i}/{len(todays)}] sent -> {c.email}")
             except Exception as e:  # one bad address must not stop the batch
-                append_result("sent_log.csv", c.email, "error", str(e))
+                append_result(SENT_LOG, c.email, "error", str(e))
                 failed += 1
                 print(f"  [{i}/{len(todays)}] FAILED -> {c.email}: {e}", file=sys.stderr)
             time.sleep(conf.delay_seconds)
@@ -103,6 +108,17 @@ def cmd_send(conf, subject_t, body_t, contacts, sent):
         smtp.quit()
     print(f"\nDone. Sent {ok}, failed {failed}. Run again tomorrow for the next batch.")
     return 0
+
+
+def validate_limit(limit):
+    """Return limit unchanged if None or a positive int; raise ValueError otherwise.
+    Prevents `--limit 0`/negative from silently disabling the daily cap and
+    sending to the entire contact list at once."""
+    if limit is None:
+        return None
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        raise ValueError(f"--limit must be a positive whole number (got {limit!r}).")
+    return limit
 
 
 def main(argv=None):
@@ -122,8 +138,13 @@ def main(argv=None):
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
-    if args.limit is not None:
-        conf.daily_limit = args.limit
+    try:
+        validated = validate_limit(args.limit)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    if validated is not None:
+        conf.daily_limit = validated
 
     if args.send:
         return cmd_send(conf, subject_t, body_t, contacts, sent)
