@@ -28,8 +28,8 @@ def test_build_message_no_cc(tmp_path):
 class _FakeSMTP:
     calls = []
 
-    def __init__(self, host, port):
-        _FakeSMTP.calls.append(("init", host, port))
+    def __init__(self, host, port, timeout=None):
+        _FakeSMTP.calls.append(("init", host, port, timeout))
 
     def starttls(self):
         _FakeSMTP.calls.append(("starttls",))
@@ -45,7 +45,7 @@ def test_connect_and_send(monkeypatch):
     _FakeSMTP.calls = []
     monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
     smtp = mailer.connect("me@gmail.com", "app pass word here")
-    assert ("init", "smtp.gmail.com", 587) in _FakeSMTP.calls
+    assert ("init", "smtp.gmail.com", 587, 30) in _FakeSMTP.calls
     assert ("starttls",) in _FakeSMTP.calls
     assert ("login", "me@gmail.com", "app pass word here") in _FakeSMTP.calls
 

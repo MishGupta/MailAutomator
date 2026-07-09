@@ -22,8 +22,13 @@ def build_message(from_addr, to_addr, subject, body, resume_path, cc_self=None):
     return msg
 
 
-def connect(address, app_password):
-    smtp = smtplib.SMTP("smtp.gmail.com", 587)
+# Seconds to wait on any SMTP socket operation before giving up, so a hung
+# Gmail connection can't stall an entire send batch indefinitely.
+SMTP_TIMEOUT = 30
+
+
+def connect(address, app_password, timeout=SMTP_TIMEOUT):
+    smtp = smtplib.SMTP("smtp.gmail.com", 587, timeout=timeout)
     smtp.starttls()
     smtp.login(address, app_password)
     return smtp
