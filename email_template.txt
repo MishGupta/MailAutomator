@@ -1,12 +1,16 @@
-Subject: Application for opportunities at {company}
+Subject: Can I earn 5 minutes of your attention?
 
 Dear {name},
 
-I came across your profile as {title} at {company} and wanted to reach out.
-I'm keen to contribute to {company} and have attached my resume for your
-consideration.
+I hope you're doing well.
 
-Thank you for your time.
+I'm Mishka Gupta, a final-year Computer Science student at Symbiosis Institute of Technology, Pune (2026).
+
+I've completed 3 AI internships, published an IEEE paper, and worked on LLM applications, RAG systems, semantic search, and AI automation products.
+
+I'm currently exploring full-time opportunities in AI/ML and Software Engineering. I've attached my resume and would appreciate it if you could keep my profile in mind for any current or future openings at {company}.
+
+You can also view my portfolio here: https://mishgupta.pythonanywhere.com/, where you'll find details of my projects, technical experience, and work.
 
 Best regards,
-Your Name
+Mishka Gupta

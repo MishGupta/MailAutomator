@@ -44,6 +44,20 @@ def test_parse_rows_skips_rows_without_email():
     assert parse_rows(rows) == []
 
 
+def test_parse_rows_strips_trailing_punctuation_from_company():
+    # The PDF table leaves separators on some company cells; left alone they
+    # render as "...openings at Estuate,." in the outgoing email.
+    rows = [
+        ["1", "A B", "a@b.com", "Head HR", "Estuate,"],
+        ["2", "C D", "c@d.com", "Head HR", "CEIPAL Corp."],
+        ["3", "E F", "e@f.com", "Head HR", "iB Hubs"],
+    ]
+    out = parse_rows(rows)
+    assert out[0].company == "Estuate"
+    assert out[1].company == "CEIPAL Corp"
+    assert out[2].company == "iB Hubs"  # clean names are untouched
+
+
 def test_parse_rows_split_title_cells():
     # pdfplumber sometimes splits a long title across cells; company is always last
     rows = [["3", "Akhil", "akhil@ibhubs.co",

@@ -43,6 +43,16 @@ def load_contacts_csv(path: str) -> list:
     return out
 
 
+# trailing separators the PDF table leaves on company cells
+_COMPANY_TRAILING = " \t,.;:-&/"
+
+
+def clean_company(value: str) -> str:
+    """Strip trailing separators left by the PDF table ("Estuate," -> "Estuate"),
+    so a rendered sentence doesn't read "...openings at Estuate,."."""
+    return value.strip().rstrip(_COMPANY_TRAILING).strip()
+
+
 def find_email(cells: list) -> tuple:
     for i, c in enumerate(cells):
         m = EMAIL_RE.search((c or "").strip())
@@ -65,10 +75,10 @@ def parse_rows(rows: list) -> list:
         name = " ".join(p for p in before if p).strip()
         if len(after) >= 2:
             title = " ".join(after[:-1]).strip()
-            company = after[-1].strip()
+            company = clean_company(after[-1])
         elif len(after) == 1:
             title = ""
-            company = after[0].strip()
+            company = clean_company(after[0])
         else:
             title = ""
             company = ""
