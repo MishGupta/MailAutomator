@@ -13,6 +13,35 @@ from mailauto import mailer
 SENT_LOG = "sent_log.csv"
 
 
+class ConnectionProblem(Exception):
+    """A connection or auth failure, phrased in terms the user can act on."""
+
+
+def connect_or_explain(conf):
+    """Connect to Gmail, announcing progress first.
+
+    Connecting takes a couple of seconds; without output the terminal looks
+    frozen and users interrupt it. OSError covers socket timeouts and DNS/
+    network failures; SMTPException covers protocol-level ones.
+    """
+    print(f"Connecting to Gmail as {conf.address} ...", flush=True)
+    try:
+        smtp = mailer.connect(conf.address, conf.app_password)
+    except smtplib.SMTPAuthenticationError:
+        raise ConnectionProblem(
+            "Gmail rejected the login. Check app_password in config.ini — it must be a "
+            "16-character App Password (2-Step Verification required), not your normal "
+            "Gmail password."
+        )
+    except (OSError, smtplib.SMTPException) as e:
+        raise ConnectionProblem(
+            f"Could not reach Gmail ({type(e).__name__}: {e}). Check your internet "
+            "connection, or whether this network blocks outbound port 587."
+        )
+    print("Connected.", flush=True)
+    return smtp
+
+
 def _load_all(args):
     conf = load_config(args.config)
     with open(conf.template_path, encoding="utf-8") as f:
@@ -57,11 +86,9 @@ def cmd_test(conf, subject_t, body_t, contacts):
                                body, conf.resume_path,
                                cc_self=None)
     try:
-        smtp = mailer.connect(conf.address, conf.app_password)
-    except smtplib.SMTPAuthenticationError:
-        print("ERROR: Gmail rejected the login. Check the app password in config.ini "
-              "(needs 2-Step Verification + an App Password, not your normal password).",
-              file=sys.stderr)
+        smtp = connect_or_explain(conf)
+    except ConnectionProblem as e:
+        print(f"ERROR: {e}", file=sys.stderr)
         return 1
     try:
         mailer.send(smtp, msg)
@@ -81,10 +108,9 @@ def cmd_send(conf, subject_t, body_t, contacts, sent):
         return 0
     print(f"Sending {len(todays)} emails (limit {conf.daily_limit})...")
     try:
-        smtp = mailer.connect(conf.address, conf.app_password)
-    except smtplib.SMTPAuthenticationError:
-        print("ERROR: Gmail rejected the login. Check the app password in config.ini.",
-              file=sys.stderr)
+        smtp = connect_or_explain(conf)
+    except ConnectionProblem as e:
+        print(f"ERROR: {e}", file=sys.stderr)
         return 1
     ok = 0
     failed = 0
@@ -146,16 +172,21 @@ def main(argv=None):
     if validated is not None:
         conf.daily_limit = validated
 
-    if args.send:
-        return cmd_send(conf, subject_t, body_t, contacts, sent)
-    if args.test:
-        return cmd_test(conf, subject_t, body_t, contacts)
-    if args.dry_run:
-        cmd_dry_run(conf, contacts, sent)
+    try:
+        if args.send:
+            return cmd_send(conf, subject_t, body_t, contacts, sent)
+        if args.test:
+            return cmd_test(conf, subject_t, body_t, contacts)
+        if args.dry_run:
+            cmd_dry_run(conf, contacts, sent)
+            return 0
+        # default: preview
+        cmd_preview(conf, subject_t, body_t, contacts, sent)
         return 0
-    # default: preview
-    cmd_preview(conf, subject_t, body_t, contacts, sent)
-    return 0
+    except KeyboardInterrupt:
+        # Already-sent emails stay recorded in sent_log.csv, so a resumed run skips them.
+        print("\nCancelled. Nothing further was sent.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":
