@@ -66,10 +66,17 @@ def test_stamp_from_yesterday_means_not_run(tmp_path):
     assert scheduler.already_ran_today(dt(d=27), str(tmp_path)) is False
 
 
-def test_corrupt_stamp_is_treated_as_not_run(tmp_path):
+def test_unparseable_stamp_is_treated_as_not_run(tmp_path):
+    """Readable text that isn't today's date fails the plain string
+    comparison and returns False -- no exception involved."""
+    (tmp_path / "last_success").write_text("not a date at all")
+    assert scheduler.already_ran_today(dt(), str(tmp_path)) is False
+
+
+def test_undecodable_stamp_is_treated_as_not_run(tmp_path):
     """Worst case is one extra send attempt, and sent_log.csv makes that
     harmless. Treating garbage as 'already ran' would silently skip a day."""
-    (tmp_path / "last_success").write_text("\x00 not a date at all")
+    (tmp_path / "last_success").write_bytes(b"\xff\xfe\x00\x01garbage")
     assert scheduler.already_ran_today(dt(), str(tmp_path)) is False
 
 
