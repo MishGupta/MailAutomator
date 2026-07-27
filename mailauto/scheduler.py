@@ -12,6 +12,8 @@ import datetime
 import os
 import subprocess
 
+from mailauto.sentlog import MAX_ATTEMPTS
+
 LOG_DIR = "logs"
 CUTOFF_HOUR = 16
 WEEKEND = (5, 6)  # datetime.weekday(): Saturday, Sunday
@@ -132,8 +134,21 @@ def _real_send(config_path="config.ini"):
     return send_emails.cmd_send(conf, subject_t, body_t, contacts, sent)
 
 
+def _real_abandoned():
+    """Addresses retired at the retry cap without ever being delivered.
+
+    Imported here rather than at module scope for the same reason as
+    _real_send: send_emails is a top-level script and importing it at load
+    time would create a cycle.
+    """
+    import send_emails
+    from mailauto.sentlog import load_abandoned
+    return load_abandoned(send_emails.SENT_LOG)
+
+
 def run_scheduled(now=None, *, log_dir=LOG_DIR, config_path="config.ini",
-                  send=None, notify_fn=notify, stop_fn=stop_agent):
+                  send=None, notify_fn=notify, stop_fn=stop_agent,
+                  abandoned_fn=None):
     """One launchd fire. Returns a process exit code.
 
     Every gate that rejects exits 0 and logs a single line -- a skipped fire is
@@ -141,6 +156,7 @@ def run_scheduled(now=None, *, log_dir=LOG_DIR, config_path="config.ini",
     """
     now = now or datetime.datetime.now()
     send = send or _real_send
+    abandoned_fn = abandoned_fn or _real_abandoned
 
     if not is_workday(now):
         log("skipped: weekend", now, log_dir)
@@ -171,9 +187,25 @@ def run_scheduled(now=None, *, log_dir=LOG_DIR, config_path="config.ini",
         now, log_dir)
 
     if result.remaining == 0:
+        # Losing the abandoned count must never prevent the scheduler from
+        # switching itself off, so a raising abandoned_fn is swallowed here.
+        try:
+            abandoned = abandoned_fn()
+        except Exception as e:
+            log(f"could not determine abandoned contacts: {type(e).__name__}: {e}",
+                now, log_dir)
+            abandoned = set()
+
         # Log before stopping: stop_agent boots out this very process.
-        log("all contacts complete — stopping the scheduler", now, log_dir)
-        notify_fn("All contacts complete. Scheduler stopped.")
+        if abandoned:
+            log("all contacts complete — stopping the scheduler. "
+                f"never reached after {MAX_ATTEMPTS} attempts: {sorted(abandoned)}",
+                now, log_dir)
+            notify_fn(f"All contacts done. {len(abandoned)} could not be reached "
+                      f"after {MAX_ATTEMPTS} attempts. Scheduler stopped.")
+        else:
+            log("all contacts complete — stopping the scheduler", now, log_dir)
+            notify_fn("All contacts complete. Scheduler stopped.")
         stop_fn()
         return 0
 

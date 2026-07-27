@@ -171,11 +171,19 @@ def test_stop_agent_survives_launchctl_failing(tmp_path, monkeypatch):
 # --- orchestration ------------------------------------------------------------
 
 class Recorder:
-    """Captures the side effects instead of performing them."""
+    """Captures the side effects instead of performing them.
 
-    def __init__(self, result=None, raises=None):
+    `abandoned` defaults to an empty set: real end-to-end use of `send_emails`'s
+    on-disk log is only exercised by _real_abandoned's own test, so every
+    completion test here gets a safe fake unless it opts into something else via
+    `abandoned` or `abandoned_raises`.
+    """
+
+    def __init__(self, result=None, raises=None, abandoned=None, abandoned_raises=None):
         self.result = result
         self.raises = raises
+        self.abandoned = abandoned if abandoned is not None else set()
+        self.abandoned_raises = abandoned_raises
         self.sends = 0
         self.messages = []
         self.stopped = 0
@@ -194,6 +202,11 @@ class Recorder:
         self.stopped += 1
         return True
 
+    def get_abandoned(self):
+        if self.abandoned_raises:
+            raise self.abandoned_raises
+        return self.abandoned
+
 
 def result(sent=50, failed=0, remaining=1444, aborted=None):
     from send_emails import SendResult
@@ -204,6 +217,7 @@ def run(rec, now, tmp_path):
     return scheduler.run_scheduled(
         now, log_dir=str(tmp_path), send=rec.send,
         notify_fn=rec.notify, stop_fn=rec.stop,
+        abandoned_fn=rec.get_abandoned,
     )
 
 
@@ -285,6 +299,35 @@ def test_completion_logs_before_stopping(tmp_path, monkeypatch):
     rec.stop = stop
     run(rec, dt(), tmp_path)
     assert "complete" in seen["log_at_stop"].lower()
+
+
+def test_completion_with_no_abandoned_keeps_the_original_message(tmp_path):
+    """Nobody was given up on: the message must not mention attempts at all."""
+    rec = Recorder(result(sent=44, failed=0, remaining=0))
+    assert run(rec, dt(), tmp_path) == 0
+    assert rec.messages[-1] == "All contacts complete. Scheduler stopped."
+
+
+def test_completion_with_abandoned_reports_the_count_and_logs_the_addresses(tmp_path):
+    rec = Recorder(result(sent=44, failed=0, remaining=0),
+                    abandoned={"dead1@x.com", "dead2@x.com"})
+    assert run(rec, dt(), tmp_path) == 0
+    assert rec.messages[-1] == (
+        "All contacts done. 2 could not be reached after 3 attempts. Scheduler stopped."
+    )
+    log_text = (tmp_path / "scheduler.log").read_text()
+    assert "dead1@x.com" in log_text
+    assert "dead2@x.com" in log_text
+    assert rec.stopped == 1
+
+
+def test_completion_survives_a_raising_abandoned_fn(tmp_path):
+    """Losing the abandoned count must never prevent the scheduler stopping."""
+    rec = Recorder(result(sent=44, failed=0, remaining=0),
+                    abandoned_raises=RuntimeError("sent_log.csv unreadable"))
+    assert run(rec, dt(), tmp_path) == 0
+    assert rec.stopped == 1
+    assert "complete" in rec.messages[-1].lower()
 
 
 # --- the production entry path -------------------------------------------------

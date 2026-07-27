@@ -1,6 +1,7 @@
 import pytest
 from mailauto.sentlog import load_sent, append_result
 from mailauto.sentlog import load_done, append_result, MAX_ATTEMPTS
+from mailauto.sentlog import load_abandoned
 
 
 def _log(tmp_path, rows):
@@ -108,3 +109,24 @@ def test_load_done_rejects_a_malformed_log(tmp_path):
     p.write_text("wrong,header\n1,2\n")
     with pytest.raises(ValueError):
         load_done(str(p))
+
+
+def test_only_error_rows_count_toward_the_cap(tmp_path):
+    """A row that is neither a delivery nor a failure must not burn an
+    attempt -- three of them would retire a contact never actually tried."""
+    p = _log(tmp_path, [("a@x.com", "queued")] * 3)
+    assert load_done(p) == set()
+
+
+def test_abandoned_is_empty_when_the_address_later_succeeded(tmp_path):
+    p = _log(tmp_path, [("a@x.com", "error")] * 3 + [("a@x.com", "sent")])
+    assert load_abandoned(p) == set()
+
+
+def test_abandoned_when_capped_out_with_no_delivery(tmp_path):
+    p = _log(tmp_path, [("a@x.com", "error")] * 3)
+    assert load_abandoned(p) == {"a@x.com"}
+
+
+def test_abandoned_is_empty_for_a_missing_file(tmp_path):
+    assert load_abandoned(str(tmp_path / "nope.csv")) == set()

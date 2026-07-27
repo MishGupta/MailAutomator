@@ -33,9 +33,11 @@ def load_done(path: str = "sent_log.csv", max_attempts: int = MAX_ATTEMPTS) -> s
 
     An address is done when it was delivered, or when it has failed
     `max_attempts` times. The retry budget exists because a failure does not say
-    why: the 8 failures on record all died to a dropped socket mid-batch, and
-    deserve another go, while a genuinely dead address would otherwise be
-    retried every weekday forever and keep the run from ever completing.
+    why: a dropped socket, greylisting, and a temporary quota rejection all
+    raise the identical per-recipient error as a genuinely bad address, so a
+    single failure can't be treated as terminal. The cap exists for addresses
+    that are actually dead — without it, one of those would be retried every
+    weekday forever and the run would never complete.
     """
     rows = _read_rows(path)
     delivered = set()
@@ -47,6 +49,26 @@ def load_done(path: str = "sent_log.csv", max_attempts: int = MAX_ATTEMPTS) -> s
             failures[email] = failures.get(email, 0) + 1
     exhausted = {e for e, n in failures.items() if n >= max_attempts}
     return delivered | exhausted
+
+
+def load_abandoned(path: str = "sent_log.csv", max_attempts: int = MAX_ATTEMPTS) -> set:
+    """Addresses that hit the retry cap and were NEVER actually delivered.
+
+    `load_done` folds delivered and exhausted addresses into one set because
+    both must stop being contacted -- but that hides the difference between
+    "reached" and "given up on". This is the set the user needs to see: live
+    contacts the scheduler tried three times and could not reach.
+    """
+    rows = _read_rows(path)
+    delivered = set()
+    failures = {}
+    for status, email in rows:
+        if status == "sent":
+            delivered.add(email)
+        elif status == "error":
+            failures[email] = failures.get(email, 0) + 1
+    exhausted = {e for e, n in failures.items() if n >= max_attempts}
+    return exhausted - delivered
 
 
 def append_result(path: str, email: str, status: str, error: str = "") -> None:
