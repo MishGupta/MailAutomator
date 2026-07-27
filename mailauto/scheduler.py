@@ -8,6 +8,7 @@ this run?" comes from checking the clock now, not from what launchd was asked
 to do.
 """
 
+import datetime
 import os
 import subprocess
 
@@ -117,3 +118,64 @@ def stop_agent(label=LAUNCH_AGENT_LABEL, plist=AGENT_PLIST, uid=None):
         return True
     except Exception:
         return False
+
+
+def _real_send(config_path="config.ini"):
+    """Run one batch through the ordinary CLI code path.
+
+    Imported here rather than at module scope: send_emails is a top-level
+    script that imports this package's siblings, and keeping the dependency
+    inside the call avoids an import cycle at load time.
+    """
+    import send_emails
+    conf, subject_t, body_t, contacts, sent = send_emails._load_all(config_path)
+    return send_emails.cmd_send(conf, subject_t, body_t, contacts, sent)
+
+
+def run_scheduled(now=None, *, log_dir=LOG_DIR, config_path="config.ini",
+                  send=None, notify_fn=notify, stop_fn=stop_agent):
+    """One launchd fire. Returns a process exit code.
+
+    Every gate that rejects exits 0 and logs a single line -- a skipped fire is
+    normal operation, not an error, and launchd should not treat it as one.
+    """
+    now = now or datetime.datetime.now()
+    send = send or _real_send
+
+    if not is_workday(now):
+        log("skipped: weekend", now, log_dir)
+        return 0
+    if not within_window(now):
+        log(f"skipped: past the {CUTOFF_HOUR}:00 cutoff", now, log_dir)
+        return 0
+    if already_ran_today(now, log_dir):
+        log("skipped: today's batch already went out", now, log_dir)
+        return 0
+
+    try:
+        result = send(config_path)
+    except Exception as e:
+        # No stamp: a crash must leave the day open for the next hourly fire.
+        log(f"FAILED: {type(e).__name__}: {e}", now, log_dir)
+        notify_fn(f"Run failed: {e}")
+        return 1
+
+    if result.aborted:
+        log(f"aborted after {result.sent} sent, {result.failed} failed: {result.aborted}",
+            now, log_dir)
+        notify_fn(f"Stopped after {result.sent} sent — retrying within the hour.")
+        return 1
+
+    record_success(now, log_dir)
+    log(f"sent {result.sent}, failed {result.failed}, {result.remaining} left",
+        now, log_dir)
+
+    if result.remaining == 0:
+        # Log before stopping: stop_agent boots out this very process.
+        log("all contacts complete — stopping the scheduler", now, log_dir)
+        notify_fn("All contacts complete. Scheduler stopped.")
+        stop_fn()
+        return 0
+
+    notify_fn(f"Sent {result.sent}, failed {result.failed}. {result.remaining} left.")
+    return 0

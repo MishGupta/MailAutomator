@@ -166,3 +166,122 @@ def test_stop_agent_survives_launchctl_failing(tmp_path, monkeypatch):
     monkeypatch.setattr(scheduler.subprocess, "run", boom)
     assert scheduler.stop_agent(plist=str(plist), uid=501) is False
     assert not plist.exists(), "the plist is gone either way, so login won't reload it"
+
+
+# --- orchestration ------------------------------------------------------------
+
+class Recorder:
+    """Captures the side effects instead of performing them."""
+
+    def __init__(self, result=None, raises=None):
+        self.result = result
+        self.raises = raises
+        self.sends = 0
+        self.messages = []
+        self.stopped = 0
+
+    def send(self, config_path):
+        self.sends += 1
+        if self.raises:
+            raise self.raises
+        return self.result
+
+    def notify(self, message, title="Mail Automator"):
+        self.messages.append(message)
+        return True
+
+    def stop(self):
+        self.stopped += 1
+        return True
+
+
+def result(sent=50, failed=0, remaining=1444, aborted=None):
+    from send_emails import SendResult
+    return SendResult(sent, failed, remaining, aborted)
+
+
+def run(rec, now, tmp_path):
+    return scheduler.run_scheduled(
+        now, log_dir=str(tmp_path), send=rec.send,
+        notify_fn=rec.notify, stop_fn=rec.stop,
+    )
+
+
+def test_weekend_fire_sends_nothing(tmp_path):
+    rec = Recorder(result())
+    assert run(rec, dt(m=8, d=1), tmp_path) == 0
+    assert rec.sends == 0
+    assert rec.messages == [], "a skipped gate is not worth a banner"
+    assert "weekend" in (tmp_path / "scheduler.log").read_text()
+
+
+def test_fire_after_the_cutoff_sends_nothing(tmp_path):
+    rec = Recorder(result())
+    assert run(rec, dt(hour=18), tmp_path) == 0
+    assert rec.sends == 0
+    assert "cutoff" in (tmp_path / "scheduler.log").read_text()
+
+
+def test_second_fire_of_the_day_sends_nothing(tmp_path):
+    rec = Recorder(result())
+    assert run(rec, dt(hour=10, minute=30), tmp_path) == 0
+    assert run(rec, dt(hour=11, minute=30), tmp_path) == 0
+    assert rec.sends == 1, "11:30 must be a no-op after 10:30 succeeded"
+
+
+def test_successful_run_stamps_notifies_and_logs(tmp_path):
+    rec = Recorder(result(sent=50, failed=0, remaining=1444))
+    assert run(rec, dt(), tmp_path) == 0
+    assert rec.sends == 1
+    assert scheduler.already_ran_today(dt(), str(tmp_path)) is True
+    assert "Sent 50, failed 0" in rec.messages[0]
+    assert "1444 left" in rec.messages[0]
+    assert rec.stopped == 0
+
+
+def test_aborted_run_leaves_no_stamp_so_the_next_fire_retries(tmp_path):
+    """The whole point of the hourly retries."""
+    rec = Recorder(result(sent=20, failed=0, remaining=1474, aborted="Gmail unreachable"))
+    assert run(rec, dt(hour=10, minute=30), tmp_path) == 1
+    assert scheduler.already_ran_today(dt(), str(tmp_path)) is False
+
+    rec.result = result(sent=30, failed=0, remaining=1444)
+    assert run(rec, dt(hour=11, minute=30), tmp_path) == 0
+    assert rec.sends == 2, "11:30 must retry after a 10:30 abort"
+    assert scheduler.already_ran_today(dt(), str(tmp_path)) is True
+
+
+def test_crashing_sender_is_caught_and_leaves_no_stamp(tmp_path):
+    """A stamp written by a crash would silently skip the whole day."""
+    rec = Recorder(raises=FileNotFoundError("config.ini not found"))
+    assert run(rec, dt(), tmp_path) == 1
+    assert scheduler.already_ran_today(dt(), str(tmp_path)) is False
+    assert "FileNotFoundError" in (tmp_path / "scheduler.log").read_text()
+    assert "failed" in rec.messages[0].lower()
+
+
+def test_finishing_the_list_stops_the_scheduler(tmp_path):
+    rec = Recorder(result(sent=44, failed=0, remaining=0))
+    assert run(rec, dt(), tmp_path) == 0
+    assert rec.stopped == 1
+    assert "complete" in rec.messages[-1].lower()
+    assert "complete" in (tmp_path / "scheduler.log").read_text().lower()
+
+
+def test_already_finished_list_stops_without_sending(tmp_path):
+    """cmd_send returns an empty result without connecting when nothing pends."""
+    rec = Recorder(result(sent=0, failed=0, remaining=0))
+    assert run(rec, dt(), tmp_path) == 0
+    assert rec.stopped == 1
+
+
+def test_completion_logs_before_stopping(tmp_path, monkeypatch):
+    """stop_agent terminates this process, so anything logged after it is lost."""
+    seen = {}
+    rec = Recorder(result(sent=44, failed=0, remaining=0))
+    def stop():
+        seen["log_at_stop"] = (tmp_path / "scheduler.log").read_text()
+        return True
+    rec.stop = stop
+    run(rec, dt(), tmp_path)
+    assert "complete" in seen["log_at_stop"].lower()
