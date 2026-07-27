@@ -1033,3 +1033,202 @@ git commit -m "feat: launchd agent, installer, and docs for the daily scheduler"
 - `logs/scheduler.log` has at least one line from a launchd-triggered run.
 - `.venv/bin/python send_emails.py --dry-run` still prints its counts and exits 0.
 - No `logs/` directory, `config.ini`, or `sent_log.csv` in `git status`.
+
+---
+
+### Task 6: Attempt cap — let the list actually finish
+
+Task 4's review found the completion condition is unsatisfiable as designed. `load_sent` counts only rows whose status is `sent`, so a contact whose send fails is recorded as `error` and remains pending forever. One permanently dead address means `remaining` never reaches 0: the scheduler reconnects to Gmail every weekday to re-attempt the same dead addresses, never notifies completion, and never stops itself.
+
+Approved decision: **an address is retried across later runs up to 3 attempts total, then treated as done.** The 8 error rows currently in `sent_log.csv` are all from the 2026-07-13 socket-death incident — transient failures that should still be retried — which is why a single error cannot be treated as terminal.
+
+Execute this task BEFORE Task 5, so Task 5's README describes the final behaviour.
+
+**Files:**
+- Modify: `mailauto/sentlog.py`
+- Modify: `send_emails.py` (`_load_all` only)
+- Test: `tests/test_sentlog.py`
+
+**Interfaces:**
+- Consumes: `load_sent(path) -> set` (unchanged, still used by tests).
+- Produces: `MAX_ATTEMPTS = 3`; `load_done(path, max_attempts=MAX_ATTEMPTS) -> set` returning the lowercased addresses that must not be contacted again.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `tests/test_sentlog.py`:
+
+```python
+from mailauto.sentlog import load_done, append_result, MAX_ATTEMPTS
+
+
+def _log(tmp_path, rows):
+    p = tmp_path / "sent_log.csv"
+    for email, status in rows:
+        append_result(str(p), email, status, "boom" if status == "error" else "")
+    return str(p)
+
+
+def test_delivered_address_is_done(tmp_path):
+    p = _log(tmp_path, [("a@x.com", "sent")])
+    assert load_done(p) == {"a@x.com"}
+
+
+def test_one_failure_is_not_done_so_it_retries(tmp_path):
+    """The 8 real failures on record died to a dropped socket, not a bad
+    address. Giving up after one error would silently discard live contacts."""
+    p = _log(tmp_path, [("a@x.com", "error")])
+    assert load_done(p) == set()
+
+
+def test_two_failures_are_not_done(tmp_path):
+    p = _log(tmp_path, [("a@x.com", "error"), ("a@x.com", "error")])
+    assert load_done(p) == set()
+
+
+def test_three_failures_are_done(tmp_path):
+    """Three strikes: a dead address must stop blocking completion, or the
+    scheduler retries it every weekday forever and never switches off."""
+    p = _log(tmp_path, [("a@x.com", "error")] * 3)
+    assert load_done(p) == {"a@x.com"}
+
+
+def test_more_than_three_failures_stay_done(tmp_path):
+    p = _log(tmp_path, [("a@x.com", "error")] * 5)
+    assert load_done(p) == {"a@x.com"}
+
+
+def test_success_after_failures_is_done(tmp_path):
+    p = _log(tmp_path, [("a@x.com", "error"), ("a@x.com", "sent")])
+    assert load_done(p) == {"a@x.com"}
+
+
+def test_failures_are_counted_per_address(tmp_path):
+    p = _log(tmp_path, [
+        ("a@x.com", "error"), ("a@x.com", "error"), ("a@x.com", "error"),
+        ("b@x.com", "error"),
+    ])
+    assert load_done(p) == {"a@x.com"}
+
+
+def test_addresses_are_matched_case_insensitively(tmp_path):
+    """contacts.csv and the log disagree on case; three attempts must count
+    as three even when the address is spelled differently each time."""
+    p = _log(tmp_path, [("A@x.com", "error"), ("a@X.com", "error"), (" a@x.com ", "error")])
+    assert load_done(p) == {"a@x.com"}
+
+
+def test_missing_log_means_nothing_is_done(tmp_path):
+    assert load_done(str(tmp_path / "nope.csv")) == set()
+
+
+def test_max_attempts_is_three():
+    assert MAX_ATTEMPTS == 3
+
+
+def test_load_done_rejects_a_malformed_log(tmp_path):
+    """Same refusal as load_sent: a corrupt log must never be guessed at."""
+    p = tmp_path / "sent_log.csv"
+    p.write_text("wrong,header\n1,2\n")
+    with pytest.raises(ValueError):
+        load_done(str(p))
+```
+
+Ensure `import pytest` is present at the top of the file.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `.venv/bin/python -m pytest tests/test_sentlog.py -q`
+Expected: FAIL — `ImportError: cannot import name 'load_done'`.
+
+- [ ] **Step 3: Implement `load_done`**
+
+In `mailauto/sentlog.py`, add the constant next to `FIELDS`:
+
+```python
+MAX_ATTEMPTS = 3
+```
+
+Then add, after `load_sent`:
+
+```python
+def load_done(path: str = "sent_log.csv", max_attempts: int = MAX_ATTEMPTS) -> set:
+    """Addresses that must not be contacted again.
+
+    An address is done when it was delivered, or when it has failed
+    `max_attempts` times. The retry budget exists because a failure does not say
+    why: the 8 failures on record all died to a dropped socket mid-batch, and
+    deserve another go, while a genuinely dead address would otherwise be
+    retried every weekday forever and keep the run from ever completing.
+    """
+    rows = _read_rows(path)
+    delivered = set()
+    failures = {}
+    for status, email in rows:
+        if status == "sent":
+            delivered.add(email)
+        elif status == "error":
+            failures[email] = failures.get(email, 0) + 1
+    exhausted = {e for e, n in failures.items() if n >= max_attempts}
+    return delivered | exhausted
+```
+
+Factor the shared parsing out of `load_sent` so both functions validate the header identically, and rewrite `load_sent` in terms of it:
+
+```python
+def _read_rows(path: str):
+    """Yield (status, normalized_email) for each row, or raise on a bad header."""
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames != FIELDS:
+            raise ValueError(
+                f"{path} is malformed: header is {reader.fieldnames!r}, expected {FIELDS!r}. "
+                "Refusing to continue — a corrupt log could cause contacts to be emailed twice. "
+                "Inspect and repair the file before sending."
+            )
+        return [
+            ((row.get("status") or "").strip(), (row.get("email") or "").strip().lower())
+            for row in reader
+        ]
+
+
+def load_sent(path: str = "sent_log.csv") -> set:
+    return {email for status, email in _read_rows(path) if status == "sent"}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `.venv/bin/python -m pytest tests/test_sentlog.py -q`
+Expected: PASS. The pre-existing `load_sent` tests must still pass unchanged — if any fails, `_read_rows` changed behaviour and that is a bug, not a test to update.
+
+- [ ] **Step 5: Use it in the send path**
+
+In `send_emails.py`, change the import and the one line in `_load_all`:
+
+```python
+from mailauto.sentlog import load_sent, load_done, append_result
+```
+
+```python
+    sent = load_done(SENT_LOG)
+```
+
+Leave the variable named `sent` and leave `cmd_send`'s signature alone — it takes a set of addresses to skip, and the meaning of that set is `_load_all`'s business. `load_sent` stays exported because the tests use it to assert what was actually delivered.
+
+- [ ] **Step 6: Run the full suite**
+
+Run: `.venv/bin/python -m pytest -q`
+Expected: PASS, all tests.
+
+- [ ] **Step 7: Confirm the real list is unaffected today**
+
+Run: `.venv/bin/python send_emails.py --dry-run`
+Expected: pending is unchanged from before this task (the 8 recorded failures each have 1 attempt, well under 3, so they remain pending and will be retried). Sends nothing.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add mailauto/sentlog.py send_emails.py tests/test_sentlog.py
+git commit -m "fix: give up on an address after 3 failed attempts so the list can finish"
+```

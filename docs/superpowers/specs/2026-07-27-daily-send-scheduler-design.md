@@ -160,6 +160,24 @@ unit-tested.
 A "Run it automatically" section in `README.md`: install command, uninstall command,
 where the log lives, the schedule, and how to check progress with `--dry-run`.
 
+## Amendment (2026-07-27, during implementation)
+
+Task 4's review found that the completion condition as specified above can never
+be satisfied. `load_sent` counts only rows with status `sent`, so a contact whose
+send fails is written as `error` and stays pending forever. One permanently dead
+address — near-certain in a 1,842-row scraped list — would mean the scheduler
+retries it every weekday indefinitely and never reaches "nothing pending", so it
+never notifies completion and never stops itself.
+
+The sent log already contains 8 such rows, though all 8 are from the 2026-07-13
+incident where the SMTP socket died mid-batch. Those are transient failures that
+*should* be retried, which rules out treating any single error as terminal.
+
+**Decision: an address is retried across later runs up to 3 attempts total, then
+treated as done.** Transient failures still recover; genuinely dead addresses stop
+blocking completion. "Done" therefore means delivered *or* attempted 3 times, and
+that is what both `select_pending` and `SendResult.remaining` now measure.
+
 ## Deliberately excluded
 
 - cron, as a fallback or otherwise.
