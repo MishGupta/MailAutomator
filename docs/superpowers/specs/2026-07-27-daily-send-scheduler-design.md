@@ -169,9 +169,14 @@ address — near-certain in a 1,842-row scraped list — would mean the schedule
 retries it every weekday indefinitely and never reaches "nothing pending", so it
 never notifies completion and never stops itself.
 
-The sent log already contains 8 such rows, though all 8 are from the 2026-07-13
-incident where the SMTP socket died mid-batch. Those are transient failures that
-*should* be retried, which rules out treating any single error as terminal.
+The sent log contains 8 error rows, all from the 2026-07-13 incident where the
+SMTP socket died mid-batch. Each is followed by a successful `sent` row from a
+later run the same day — the reconnect logic recovered every one of them. They
+are therefore already delivered and are not what the cap is for. What they do
+demonstrate is that a failure does not mean a bad address, which is why a single
+error cannot be treated as terminal: the cap has to be high enough that a
+dropped socket, a greylisting, or a temporary quota rejection does not retire a
+live contact.
 
 **Decision: an address is retried across later runs up to 3 attempts total, then
 treated as done.** Transient failures still recover; genuinely dead addresses stop
