@@ -17,7 +17,7 @@
 - **No test may open a socket, run `osascript`, run `launchctl`, or write outside `tmp_path`.**
 - **Label:** `com.mishka.mail-automator` — used verbatim in the plist filename, the plist `Label`, the install script, and `scheduler.py`.
 - **Times:** fires at 10:30, 11:30, 12:30, 13:30, 14:30, 15:30 local. Cutoff hour is 16.
-- Run tests with `.venv/bin/pytest -q` from the project root.
+- Run tests with `.venv/bin/python -m pytest -q` from the project root.
 
 ## File Structure
 
@@ -124,7 +124,7 @@ Update the three existing assertions so they test the exit code explicitly:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_send_cli.py -q`
+Run: `.venv/bin/python -m pytest tests/test_send_cli.py -q`
 Expected: FAIL — `AttributeError: 'int' object has no attribute 'exit_code'`.
 
 - [ ] **Step 3: Add `SendResult`**
@@ -218,7 +218,7 @@ In `main`, update the call site and the `--send` branch:
 
 - [ ] **Step 6: Run the full suite**
 
-Run: `.venv/bin/pytest -q`
+Run: `.venv/bin/python -m pytest -q`
 Expected: PASS, all tests. If anything outside `test_send_cli.py` fails, the CLI contract has been broken — fix it rather than updating the assertion.
 
 - [ ] **Step 7: Verify the CLI is genuinely unchanged**
@@ -352,7 +352,7 @@ def test_log_creates_a_missing_log_dir(tmp_path):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_scheduler.py -q`
+Run: `.venv/bin/python -m pytest tests/test_scheduler.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'mailauto.scheduler'`.
 
 - [ ] **Step 3: Write the module**
@@ -430,7 +430,7 @@ def log(message, now, log_dir=LOG_DIR):
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_scheduler.py -q`
+Run: `.venv/bin/python -m pytest tests/test_scheduler.py -q`
 Expected: PASS, 15 tests.
 
 - [ ] **Step 5: Commit**
@@ -526,7 +526,7 @@ def test_stop_agent_survives_launchctl_failing(tmp_path, monkeypatch):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_scheduler.py -q`
+Run: `.venv/bin/python -m pytest tests/test_scheduler.py -q`
 Expected: FAIL — `AttributeError: module 'mailauto.scheduler' has no attribute 'subprocess'`.
 
 - [ ] **Step 3: Implement both side effects**
@@ -588,7 +588,7 @@ def stop_agent(label=LAUNCH_AGENT_LABEL, plist=AGENT_PLIST, uid=None):
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_scheduler.py -q`
+Run: `.venv/bin/python -m pytest tests/test_scheduler.py -q`
 Expected: PASS, 21 tests.
 
 - [ ] **Step 5: Commit**
@@ -739,7 +739,7 @@ def test_completion_logs_before_stopping(tmp_path, monkeypatch):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_scheduler.py -q`
+Run: `.venv/bin/python -m pytest tests/test_scheduler.py -q`
 Expected: FAIL — `AttributeError: module 'mailauto.scheduler' has no attribute 'run_scheduled'`.
 
 - [ ] **Step 3: Implement `run_scheduled`**
@@ -825,7 +825,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run the full suite**
 
-Run: `.venv/bin/pytest -q`
+Run: `.venv/bin/python -m pytest -q`
 Expected: PASS, all tests including the 30 in `test_scheduler.py`.
 
 - [ ] **Step 6: Prove the gates work against the real code**
@@ -1014,7 +1014,7 @@ Check progress at any time with `.venv/bin/python send_emails.py --dry-run`.
 
 - [ ] **Step 6: Run the full suite one last time**
 
-Run: `.venv/bin/pytest -q`
+Run: `.venv/bin/python -m pytest -q`
 Expected: PASS, all tests.
 
 - [ ] **Step 7: Commit**
@@ -1028,7 +1028,7 @@ git commit -m "feat: launchd agent, installer, and docs for the daily scheduler"
 
 ## Done when
 
-- `.venv/bin/pytest -q` passes.
+- `.venv/bin/python -m pytest -q` passes.
 - `launchctl print "gui/$(id -u)/com.mishka.mail-automator"` shows the job loaded.
 - `logs/scheduler.log` has at least one line from a launchd-triggered run.
 - `.venv/bin/python send_emails.py --dry-run` still prints its counts and exits 0.
