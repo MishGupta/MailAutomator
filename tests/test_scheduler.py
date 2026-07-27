@@ -101,3 +101,68 @@ def test_log_creates_a_missing_log_dir(tmp_path):
     target = tmp_path / "logs"
     scheduler.log("hello", dt(), str(target))
     assert (target / "scheduler.log").exists()
+
+
+# --- notifications ------------------------------------------------------------
+
+def test_notify_shells_out_to_osascript(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scheduler.subprocess, "run",
+                        lambda cmd, **kw: calls.append(cmd))
+    assert scheduler.notify("Sent 50, failed 0. 1444 left.") is True
+    assert calls[0][0] == "osascript"
+    joined = " ".join(calls[0])
+    assert "display notification" in joined
+    assert "Sent 50, failed 0. 1444 left." in joined
+    assert "Mail Automator" in joined
+
+
+def test_notify_survives_osascript_blowing_up(monkeypatch):
+    """A failed banner must never fail a run that already sent email."""
+    def boom(cmd, **kw):
+        raise FileNotFoundError("osascript: not found")
+    monkeypatch.setattr(scheduler.subprocess, "run", boom)
+    assert scheduler.notify("anything") is False
+
+
+def test_osa_quote_escapes_quotes_and_backslashes():
+    """Company names carry apostrophes and the odd backslash; an unescaped one
+    turns the AppleScript into a syntax error and loses the notification."""
+    assert scheduler._osa_quote('say "hi"') == '"say \\"hi\\""'
+    assert scheduler._osa_quote("back\\slash") == '"back\\\\slash"'
+
+
+# --- stopping the agent when the list is finished -----------------------------
+
+def test_stop_agent_removes_the_plist_before_booting_out(tmp_path, monkeypatch):
+    """Order matters twice over: bootout can terminate this very process, and a
+    plist left on disk is reloaded at the next login."""
+    plist = tmp_path / "com.mishka.mail-automator.plist"
+    plist.write_text("<plist/>")
+    events = []
+    monkeypatch.setattr(scheduler.subprocess, "run",
+                        lambda cmd, **kw: events.append(("ran", plist.exists())))
+
+    assert scheduler.stop_agent(plist=str(plist), uid=501) is True
+    assert events == [("ran", False)], "plist must already be gone by bootout"
+    assert not plist.exists()
+
+
+def test_stop_agent_targets_the_gui_domain(tmp_path, monkeypatch):
+    plist = tmp_path / "p.plist"
+    plist.write_text("<plist/>")
+    calls = []
+    monkeypatch.setattr(scheduler.subprocess, "run",
+                        lambda cmd, **kw: calls.append(cmd))
+    scheduler.stop_agent(plist=str(plist), uid=501)
+    assert calls[0] == ["launchctl", "bootout", "gui/501/com.mishka.mail-automator"]
+
+
+def test_stop_agent_survives_launchctl_failing(tmp_path, monkeypatch):
+    plist = tmp_path / "p.plist"
+    plist.write_text("<plist/>")
+    def boom(cmd, **kw):
+        raise OSError("launchctl exploded")
+    monkeypatch.setattr(scheduler.subprocess, "run", boom)
+    assert scheduler.stop_agent(plist=str(plist), uid=501) is False
+    assert not plist.exists(), "the plist is gone either way, so login won't reload it"

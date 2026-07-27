@@ -9,6 +9,7 @@ to do.
 """
 
 import os
+import subprocess
 
 LOG_DIR = "logs"
 CUTOFF_HOUR = 16
@@ -64,3 +65,55 @@ def log(message, now, log_dir=LOG_DIR):
     os.makedirs(log_dir, exist_ok=True)
     with open(log_file_path(log_dir), "a", encoding="utf-8") as f:
         f.write(f"{now.isoformat(timespec='seconds')}  {message}\n")
+
+
+APP_TITLE = "Mail Automator"
+AGENT_PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LAUNCH_AGENT_LABEL}.plist")
+
+
+def _osa_quote(s):
+    """Quote a Python string as an AppleScript string literal.
+
+    Backslash first -- escaping quotes first would then double the backslashes
+    this step introduces.
+    """
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def notify(message, title=APP_TITLE):
+    """Show a Notification Centre banner. Returns whether it worked.
+
+    Works because a LaunchAgent runs inside the user's GUI session. Never
+    raises: losing a banner is trivial next to failing a run that already
+    delivered email.
+    """
+    script = (f"display notification {_osa_quote(message)} "
+              f"with title {_osa_quote(title)}")
+    try:
+        subprocess.run(["osascript", "-e", script],
+                       check=True, capture_output=True, timeout=15)
+        return True
+    except Exception:
+        return False
+
+
+def stop_agent(label=LAUNCH_AGENT_LABEL, plist=AGENT_PLIST, uid=None):
+    """Stop the scheduler for good, once every contact has been emailed.
+
+    The plist is deleted *before* the bootout for two reasons: bootout
+    terminates the running job, which is this very process, so nothing after it
+    is guaranteed to run; and launchd reloads any plist still sitting in
+    ~/Library/LaunchAgents at the next login, which would quietly restart a
+    scheduler that has nothing left to do.
+    """
+    uid = os.getuid() if uid is None else uid
+    try:
+        os.remove(plist)
+    except OSError:
+        pass  # already gone, or never installed from this path
+    try:
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/{label}"],
+                       check=True, capture_output=True, timeout=15)
+        return True
+    except Exception:
+        return False
