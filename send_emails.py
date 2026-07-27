@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from mailauto.config import load_config
 from mailauto.parsing import load_contacts_csv
 from mailauto.templating import parse_template, render, strip_bold, to_html
-from mailauto.sentlog import load_sent, append_result
+from mailauto.sentlog import load_sent, load_done, append_result
 from mailauto.planner import select_pending
 from mailauto import mailer
 
@@ -165,7 +165,7 @@ def _load_all(config_path):
     with open(conf.template_path, encoding="utf-8") as f:
         subject_t, body_t = parse_template(f.read())
     contacts = load_contacts_csv(conf.contacts_path)
-    sent = load_sent(SENT_LOG)
+    sent = load_done(SENT_LOG)
     return conf, subject_t, body_t, contacts, sent
 
 
