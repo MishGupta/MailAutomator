@@ -285,3 +285,63 @@ def test_completion_logs_before_stopping(tmp_path, monkeypatch):
     rec.stop = stop
     run(rec, dt(), tmp_path)
     assert "complete" in seen["log_at_stop"].lower()
+
+
+# --- the production entry path -------------------------------------------------
+#
+# Every test above passes `now` explicitly and overrides all three injectable
+# defaults, so none of them exercise what launchd actually calls: `now=None`
+# defaulting to the real clock, run_daily.py's import, or _real_send's body.
+# These three close that gap. A Saturday is used for the default-clock test so
+# that even a broken injection could not reach the real sender.
+
+def test_default_clock_is_used_when_now_is_omitted(tmp_path, monkeypatch):
+    """Deleting `now = now or datetime.datetime.now()` would still pass every
+    other test in this file, since they all pass `now` explicitly."""
+    class FixedDatetime(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime(2026, 8, 1, 10, 30)  # a Saturday
+
+    monkeypatch.setattr(scheduler.datetime, "datetime", FixedDatetime)
+    rec = Recorder(result())
+    exit_code = scheduler.run_scheduled(
+        log_dir=str(tmp_path), send=rec.send,
+        notify_fn=rec.notify, stop_fn=rec.stop,
+    )
+    assert exit_code == 0
+    assert rec.sends == 0
+    assert "weekend" in (tmp_path / "scheduler.log").read_text()
+
+
+def test_run_daily_imports_the_real_run_scheduled():
+    """Importing run_daily must not execute anything (the __main__ guard), but
+    it must wire up the exact function launchd will invoke."""
+    import run_daily
+    assert run_daily.run_scheduled is scheduler.run_scheduled
+
+
+def test_real_send_wires_load_all_into_cmd_send(monkeypatch):
+    """No network, no real config file: _load_all and cmd_send are both faked,
+    so this only proves _real_send threads the 5-tuple through correctly."""
+    import send_emails
+
+    sentinel = ("conf", "subject_t", "body_t", "contacts", "sent")
+    captured = {}
+
+    def fake_load_all(config_path):
+        captured["config_path"] = config_path
+        return sentinel
+
+    def fake_cmd_send(conf, subject_t, body_t, contacts, sent):
+        captured["args"] = (conf, subject_t, body_t, contacts, sent)
+        return send_emails.SendResult(1, 0, 0)
+
+    monkeypatch.setattr(send_emails, "_load_all", fake_load_all)
+    monkeypatch.setattr(send_emails, "cmd_send", fake_cmd_send)
+
+    outcome = scheduler._real_send("some/config.ini")
+
+    assert captured["config_path"] == "some/config.ini"
+    assert captured["args"] == sentinel
+    assert outcome == send_emails.SendResult(1, 0, 0)
