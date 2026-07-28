@@ -1,5 +1,5 @@
 from mailauto.parsing import Contact
-from mailauto.templating import parse_template, render
+from mailauto.templating import parse_template, render, strip_bold, to_html
 import pytest
 
 
@@ -40,3 +40,34 @@ def test_render_handles_empty_field():
     c = Contact("Jane", "jane@acme.com", "", "Acme")
     subject, body = render(subject_t, body_t, c)
     assert "role as  at Acme" in body  # empty title collapses cleanly
+
+
+def test_strip_bold_removes_markers():
+    assert strip_bold("I did **20+ fields** fast") == "I did 20+ fields fast"
+
+
+def test_strip_bold_leaves_plain_text_alone():
+    assert strip_bold("no markers here") == "no markers here"
+
+
+def test_to_html_wraps_bold_in_b_tags():
+    assert "<b>20+ fields</b>" in to_html("I did **20+ fields** fast")
+
+
+def test_to_html_escapes_html_special_characters():
+    # Company names like "Johnson & Johnson" must not corrupt the markup.
+    html = to_html("Hi Johnson & Johnson <team>")
+    assert "&amp;" in html
+    assert "&lt;team&gt;" in html
+    assert "<team>" not in html
+
+
+def test_to_html_keeps_paragraph_breaks():
+    html = to_html("First para.\n\nSecond para.")
+    assert "<p>" in html
+    assert html.count("<p>") == 2
+
+
+def test_to_html_linkifies_bare_urls():
+    html = to_html("See https://example.com/x now")
+    assert '<a href="https://example.com/x">https://example.com/x</a>' in html

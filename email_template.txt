@@ -1,14 +1,19 @@
-Subject: 3 AI internships, an IEEE paper, and one ask for {company}
+Subject: AI Engineer eager to contribute to {company}
 
 Dear {name},
 
-I'm Mishka Gupta, a 2026 Computer Science graduate from Symbiosis Institute of Technology, Pune. I've completed three AI internships and published an IEEE paper, and I build production LLM systems — RAG pipelines, semantic search, and AI automation tools.
+I'm Mishka Gupta, a 2026 Computer Science graduate from Symbiosis Institute of Technology, Pune. I have done **three AI internships**, all building production LLM systems.
 
-Here's the ask: is {company} hiring AI/ML or Software Engineering graduates this cycle? If someone else on your team owns early-career hiring, I'd be grateful for a pointer to them.
+During my internships I built an AI CV parser that extracts **20+ fields in 12 seconds** — work that takes 30-45 minutes by hand. I also built an **Agentic Slack Assistant** connected to **various CRM systems**.
 
-My resume is attached, and my projects and code are at https://mishgupta.pythonanywhere.com/
+I've also published an **IEEE paper** and **filed a patent**.
 
-Thank you for your time.
+Is {company} hiring **AI/ML or Software Engineering graduates** this cycle? If someone else owns early-career hiring, please point me to them.
+
+My resume is attached. My chatbot answers questions about me in **5 languages**: https://mishgupta.pythonanywhere.com/
+
+I'd be happy to share more details if helpful.
 
 Best regards,
 Mishka Gupta
+https://www.linkedin.com/in/mishkagupta/ | https://github.com/MishGupta

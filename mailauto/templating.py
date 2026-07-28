@@ -1,3 +1,29 @@
+import html as _html
+import re
+
+# **bold** spans, and bare URLs to turn into anchors in the HTML part.
+_BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
+_URL = re.compile(r"(https?://[^\s<>\"]+)")
+
+
+def strip_bold(text: str) -> str:
+    """Drop the ** markers, leaving clean text for the plain-text part."""
+    return _BOLD.sub(r"\1", text)
+
+
+def to_html(text: str) -> str:
+    """Render the body as HTML: **bold** to <b>, blank lines to paragraphs.
+
+    Escapes first so contact fields carrying & or <> (e.g. "Johnson & Johnson")
+    can't corrupt the markup.
+    """
+    escaped = _html.escape(text)
+    marked = _BOLD.sub(r"<b>\1</b>", escaped)
+    linked = _URL.sub(r'<a href="\1">\1</a>', marked)
+    paragraphs = [p.replace("\n", "<br>\n") for p in linked.split("\n\n")]
+    return "\n".join(f"<p>{p}</p>" for p in paragraphs)
+
+
 def parse_template(text: str) -> tuple:
     lines = text.splitlines()
     if not lines or not lines[0].lower().startswith("subject:"):

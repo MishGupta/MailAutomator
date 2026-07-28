@@ -19,6 +19,27 @@ def test_build_message_has_headers_body_and_attachment(tmp_path):
     assert atts[0].get_filename() == "resume.pdf"
 
 
+def test_build_message_adds_html_alternative_and_keeps_plain(tmp_path):
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4 fake")
+    msg = mailer.build_message(
+        "me@gmail.com", "hr@acme.com", "S", "Plain body",
+        str(resume), html_body="<p>HTML <b>body</b></p>",
+    )
+    assert "Plain body" in msg.get_body(preferencelist=("plain",)).get_content()
+    assert "<b>body</b>" in msg.get_body(preferencelist=("html",)).get_content()
+    # The attachment must survive the multipart restructuring.
+    atts = list(msg.iter_attachments())
+    assert len(atts) == 1
+    assert atts[0].get_filename() == "resume.pdf"
+
+
+def test_build_message_stays_plain_only_without_html(tmp_path):
+    resume = tmp_path / "resume.pdf"; resume.write_bytes(b"x")
+    msg = mailer.build_message("me@gmail.com", "hr@acme.com", "S", "B", str(resume))
+    assert msg.get_body(preferencelist=("html",)) is None
+
+
 def test_build_message_no_cc(tmp_path):
     resume = tmp_path / "resume.pdf"; resume.write_bytes(b"x")
     msg = mailer.build_message("me@gmail.com", "hr@acme.com", "S", "B", str(resume))

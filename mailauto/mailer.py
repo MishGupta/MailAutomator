@@ -4,7 +4,8 @@ import smtplib
 from email.message import EmailMessage
 
 
-def build_message(from_addr, to_addr, subject, body, resume_path, cc_self=None):
+def build_message(from_addr, to_addr, subject, body, resume_path, cc_self=None,
+                  html_body=None):
     msg = EmailMessage()
     msg["From"] = from_addr
     msg["To"] = to_addr
@@ -12,6 +13,9 @@ def build_message(from_addr, to_addr, subject, body, resume_path, cc_self=None):
         msg["Cc"] = cc_self
     msg["Subject"] = subject
     msg.set_content(body)
+    # Clients that can't render HTML fall back to the plain-text part above.
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
 
     ctype, _ = mimetypes.guess_type(resume_path)
     maintype, subtype = (ctype or "application/octet-stream").split("/", 1)
