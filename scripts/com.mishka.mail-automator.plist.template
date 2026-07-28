@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mishka.mail-automator</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__PROJECT__/run_daily.py</string>
+  </array>
+
+  <!-- launchd runs jobs with cwd=/ and a minimal environment, so every path
+       the tool resolves relatively (config.ini, contacts.csv, sent_log.csv,
+       logs/) depends on this being set. -->
+  <key>WorkingDirectory</key>
+  <string>__PROJECT__</string>
+
+  <key>StandardOutPath</key>
+  <string>__PROJECT__/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__PROJECT__/logs/launchd.err.log</string>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+</dict>
+</plist>

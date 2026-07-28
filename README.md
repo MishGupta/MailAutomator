@@ -48,6 +48,29 @@ Open `contacts.csv` in a spreadsheet and remove or fix any rows you don't want.
   just run `--send` once a day until the list is finished (~1,842 ÷ 400 ≈ 5 days).
 - Send fewer in one run: `--send --limit 200`. `--limit` must be a positive number.
 
+## Run it automatically
+
+```bash
+./scripts/install_scheduler.sh              # turn it on
+./scripts/install_scheduler.sh --uninstall  # turn it off
+```
+
+Once installed, 50 emails go out at **10:30 AM, Monday to Friday**, with no action
+from you, until the whole list is finished.
+
+- If the Mac is asleep or off at 10:30, the batch runs as soon as it wakes.
+- If that fails (no wifi, Gmail unreachable), it retries hourly — 11:30, 12:30, and
+  so on — and gives up at **16:00**, leaving the batch for the next weekday. Nobody
+  is ever emailed twice, because `sent_log.csv` is written as each email goes out.
+- A notification tells you the result of each run; `logs/scheduler.log` keeps the
+  full history.
+- It stops itself once nothing is left to do: every contact has either been emailed,
+  or — after 3 failed tries — given up on. When that happens, you get a notification
+  saying how many (if any) could not be reached, and the scheduler switches itself
+  off.
+
+Check progress at any time with `.venv/bin/python send_emails.py --dry-run`.
+
 ## Config reference (`config.ini`)
 
 ```ini

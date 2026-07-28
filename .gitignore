@@ -4,6 +4,7 @@ sent_log.csv
 contacts.csv
 *.resume.pdf
 resume.pdf
+logs/
 
 # python
 .venv/
