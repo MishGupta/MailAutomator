@@ -1,9 +1,8 @@
 # Mail Automator
 
 Send personalized, resume-attached outreach emails to HR contacts from a PDF list,
-in daily batches, from your Gmail account. Already-emailed people are remembered in
-`sent_log.csv` and are not selected again — see the note below on the one case where
-that guarantee isn't absolute.
+in daily batches, from your Gmail account. Already-emailed people are recorded in
+`sent_log.csv` and are never selected again.
 
 ## One-time setup
 
@@ -39,14 +38,16 @@ Open `contacts.csv` in a spreadsheet and remove or fix any rows you don't want.
 .venv/bin/python send_emails.py --preview   # show 3 finished sample emails (sends NOTHING)
 .venv/bin/python send_emails.py --test      # send ONE test email to yourself first
 .venv/bin/python send_emails.py --dry-run   # counts: total / already sent / pending / would-send
-.venv/bin/python send_emails.py --send      # send today's batch (default 400), then stop
+.venv/bin/python send_emails.py --send      # send today's batch (50 by default), then stop
 ```
 
 - `--preview` is the default, so running with no flag never sends.
 - Do `--test` at least once and check the email arrived (formatting + attachment) before
   your first real `--send`.
 - Already-emailed people are recorded in `sent_log.csv` and skipped automatically, so you
-  just run `--send` once a day until the list is finished (~1,842 ÷ 400 ≈ 5 days).
+  just run `--send` once a day until the list is finished. At the configured 50/day
+  that is about 30 weekdays for the 1,502 still outstanding — or let the scheduler
+  below do it for you.
 - Send fewer in one run: `--send --limit 200`. `--limit` must be a positive number.
 - **Do not run `--send` by hand while the scheduler (below) is installed.** Both read the
   same pending list, so a manual run overlapping a scheduled one can re-send to the same
@@ -70,7 +71,10 @@ from you, until the whole list is finished.
   day with a failed attempt followed by a successful retry can send more than 50 — a
   realistic worst case is under 300, comfortably inside Gmail's ~500/day limit.
 - An already-emailed contact is not selected again, because `sent_log.csv` is written as
-  each email goes out — the one exception is documented above (reconnect duplicates).
+  each email goes out. There is one rare exception: if Gmail drops the connection in the
+  instant between accepting a message and confirming it, that message is re-sent on the
+  reconnect and that person receives it twice. Sending twice was judged better than
+  never contacting them at all.
 - A notification tells you the result of each run; `logs/scheduler.log` keeps the
   full history.
 - It stops itself once nothing is left to do: every contact has either been emailed,
@@ -93,7 +97,7 @@ template = email_template.txt
 contacts = contacts.csv
 
 [send]
-daily_limit = 400      ; per-run cap (Gmail free accounts allow ~500/day)
+daily_limit = 50       ; per-run cap (Gmail free accounts allow ~500/day)
 delay_seconds = 2      ; pause between emails
 cc_self = false        ; set true to Cc yourself on every email
 ```
