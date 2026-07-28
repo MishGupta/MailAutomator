@@ -258,6 +258,12 @@ def test_aborted_run_leaves_no_stamp_so_the_next_fire_retries(tmp_path):
     rec = Recorder(result(sent=20, failed=0, remaining=1474, aborted="Gmail unreachable"))
     assert run(rec, dt(hour=10, minute=30), tmp_path) == 1
     assert scheduler.already_ran_today(dt(), str(tmp_path)) is False
+    # At the last fire of the day there is no "within the hour" -- the real
+    # retry is the next scheduled run (next hourly fire, or next weekday if
+    # this was the 15:30 fire). The banner must not claim a specific timing
+    # that isn't true in both cases.
+    assert "within the hour" not in rec.messages[0]
+    assert "retry" in rec.messages[0].lower()
 
     rec.result = result(sent=30, failed=0, remaining=1444)
     assert run(rec, dt(hour=11, minute=30), tmp_path) == 0

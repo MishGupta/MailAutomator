@@ -89,6 +89,17 @@ CONNECTION_ERRORS = (
 
 RECONNECT_ATTEMPTS = 3
 
+# A batch where Gmail refuses one message after another -- not scattered bad
+# addresses, but the same failure back to back -- almost never means "5 bad
+# addresses in a row" (that streak is not realistic against a real contact
+# list). It far more likely means Gmail has started refusing the message
+# itself (identical attachment, cold outreach), in which case every remaining
+# contact would also fail and each failure burns one of that contact's 3
+# lifetime attempts. Stopping here converts that into an aborted run: no
+# stamp, an hourly retry, and nobody's attempt budget wasted on a message
+# problem instead of an address problem.
+CONSECUTIVE_FAILURE_LIMIT = 5
+
 
 def send_with_reconnect(smtp, conf, msg, attempts=RECONNECT_ATTEMPTS):
     """Send one message, rebuilding the connection if it has died.
@@ -165,6 +176,19 @@ def _load_all(config_path):
     with open(conf.template_path, encoding="utf-8") as f:
         subject_t, body_t = parse_template(f.read())
     contacts = load_contacts_csv(conf.contacts_path)
+    if not contacts:
+        # A contacts file that parses to zero rows is never legitimate for
+        # this tool -- an empty list, a header-only file, or (before the
+        # header check in load_contacts_csv) a mis-saved header would
+        # otherwise look identical to "the whole list is finished" and the
+        # scheduler would notify completion and unload its own LaunchAgent
+        # without ever having emailed anyone. This is the one choke point
+        # both the CLI and the scheduler pass through, so raising here turns
+        # that into a visible, retrying failure instead.
+        raise ValueError(
+            f"{conf.contacts_path} loaded zero contacts. Check that the file has a "
+            "header row and at least one data row."
+        )
     sent = load_done(SENT_LOG)
     return conf, subject_t, body_t, contacts, sent
 
@@ -234,6 +258,7 @@ def cmd_send(conf, subject_t, body_t, contacts, sent):
     ok = 0
     failed = 0
     aborted = None
+    consecutive_failures = 0
     try:
         for i, c in enumerate(todays, 1):
             subject, body, html = render_parts(subject_t, body_t, c)
@@ -245,6 +270,7 @@ def cmd_send(conf, subject_t, body_t, contacts, sent):
                 smtp = send_with_reconnect(smtp, conf, msg)
                 append_result(SENT_LOG, c.email, "sent")
                 ok += 1
+                consecutive_failures = 0
                 print(f"  [{i}/{len(todays)}] sent -> {c.email}")
             except ConnectionProblem as e:
                 # Gmail is gone for good. Stop here and leave every remaining
@@ -254,7 +280,18 @@ def cmd_send(conf, subject_t, body_t, contacts, sent):
             except Exception as e:  # one bad address must not stop the batch
                 append_result(SENT_LOG, c.email, "error", str(e))
                 failed += 1
+                consecutive_failures += 1
                 print(f"  [{i}/{len(todays)}] FAILED -> {c.email}: {e}", file=sys.stderr)
+                if consecutive_failures >= CONSECUTIVE_FAILURE_LIMIT:
+                    # Not scattered bad addresses -- Gmail is almost certainly
+                    # refusing the message itself. Stop before the rest of the
+                    # list burns an attempt each for nothing.
+                    aborted = (
+                        f"Gmail rejected {CONSECUTIVE_FAILURE_LIMIT} messages in a row "
+                        "— it is probably refusing this message rather than these "
+                        "addresses. Stopped so the rest of the list is not burned."
+                    )
+                    break
             time.sleep(conf.delay_seconds)
     finally:
         try:

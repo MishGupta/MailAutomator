@@ -179,7 +179,7 @@ def run_scheduled(now=None, *, log_dir=LOG_DIR, config_path="config.ini",
     if result.aborted:
         log(f"aborted after {result.sent} sent, {result.failed} failed: {result.aborted}",
             now, log_dir)
-        notify_fn(f"Stopped after {result.sent} sent — retrying within the hour.")
+        notify_fn(f"Stopped after {result.sent} sent — will retry on the next scheduled run.")
         return 1
 
     record_success(now, log_dir)

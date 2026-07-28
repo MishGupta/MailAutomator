@@ -1,3 +1,5 @@
+import pytest
+
 from mailauto.parsing import Contact, is_valid_email, write_contacts_csv, load_contacts_csv, find_email, parse_rows
 
 
@@ -56,6 +58,59 @@ def test_parse_rows_strips_trailing_punctuation_from_company():
     assert out[0].company == "Estuate"
     assert out[1].company == "CEIPAL Corp"
     assert out[2].company == "iB Hubs"  # clean names are untouched
+
+
+# --- header validation (Finding 2) --------------------------------------------
+#
+# csv.DictReader silently yields None for any missing column, so a mis-saved
+# header ("Email" capitalised, "E-mail", or the header row deleted entirely)
+# used to make every contact come out with email="" -- nothing pending, and
+# the scheduler would read that as "the list is finished" and shut itself
+# down without ever having emailed anyone. These pin that a bad header is now
+# a loud failure instead.
+
+def test_load_contacts_csv_rejects_capitalised_header(tmp_path):
+    p = tmp_path / "contacts.csv"
+    p.write_text("Name,Email,Title,Company\nA,a@b.com,T,C\n")
+    with pytest.raises(ValueError):
+        load_contacts_csv(str(p))
+
+
+def test_load_contacts_csv_rejects_e_mail_header(tmp_path):
+    p = tmp_path / "contacts.csv"
+    p.write_text("name,E-mail,title,company\nA,a@b.com,T,C\n")
+    with pytest.raises(ValueError):
+        load_contacts_csv(str(p))
+
+
+def test_load_contacts_csv_rejects_missing_header_row(tmp_path):
+    """The header row deleted entirely: the first data row is read as the header."""
+    p = tmp_path / "contacts.csv"
+    p.write_text("A,a@b.com,T,C\nD,d@e.com,U,V\n")
+    with pytest.raises(ValueError):
+        load_contacts_csv(str(p))
+
+
+def test_load_contacts_csv_correct_lowercase_header_still_loads(tmp_path):
+    p = tmp_path / "contacts.csv"
+    p.write_text("name,email,title,company\nA,a@b.com,T,C\n")
+    out = load_contacts_csv(str(p))
+    assert out == [Contact("A", "a@b.com", "T", "C")]
+
+
+def test_load_contacts_csv_utf8_bom_on_correct_header_still_loads(tmp_path):
+    """This already worked before the header check was added; must not regress."""
+    p = tmp_path / "contacts.csv"
+    with open(p, "w", encoding="utf-8-sig") as f:
+        f.write("name,email,title,company\nA,a@b.com,T,C\n")
+    out = load_contacts_csv(str(p))
+    assert out == [Contact("A", "a@b.com", "T", "C")]
+
+
+def test_load_contacts_csv_empty_file_still_returns_empty_list(tmp_path):
+    p = tmp_path / "contacts.csv"
+    p.write_text("")
+    assert load_contacts_csv(str(p)) == []
 
 
 def test_parse_rows_split_title_cells():

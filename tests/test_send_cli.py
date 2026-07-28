@@ -236,3 +236,79 @@ def test_send_result_empty_list_is_complete_not_aborted(monkeypatch, tmp_path):
     assert (result.sent, result.failed, result.remaining) == (0, 0, 0)
     assert result.aborted is None
     assert connects == [], "an empty batch must never connect to Gmail"
+
+
+# --- consecutive-failure circuit breaker (Finding 1) --------------------------
+#
+# If Gmail starts refusing the message class wholesale (identical attachment,
+# cold outreach) every recipient in the batch fails individually even though
+# the connection is fine. Without a breaker, each of those failures still
+# burns one of that contact's 3 lifetime attempts, and the run still reports
+# success to the scheduler -- three such days permanently retires 150 live
+# contacts who were never actually emailed.
+
+def test_send_aborts_after_five_consecutive_failures(monkeypatch, tmp_path):
+    """A solid wall of refusals must stop the batch, not burn every contact."""
+    refused = smtplib.SMTPRecipientsRefused({"x": (550, b"no such user")})
+    smtp = _FakeSMTP([refused] * 5)
+    conf, contacts, log, connects = _setup(monkeypatch, tmp_path, [smtp], n_contacts=10)
+
+    rc = send_emails.cmd_send(conf, "Hi {company}", "Dear {name}", contacts, set())
+
+    assert rc.aborted is not None
+    assert rc.exit_code == 1
+    assert smtp.sent == []
+    rows = log.read_text()
+    for i in range(5):
+        assert f"p{i}@acme.com" in rows, "each of the 5 refusals must still be logged"
+    for i in range(5, 10):
+        assert f"p{i}@acme.com" not in rows, "contacts beyond the 5th must never be attempted"
+
+
+def test_send_four_failures_then_a_success_does_not_abort_and_resets_the_counter(monkeypatch, tmp_path):
+    """Scattered failures below the limit, or reset by a success, must not abort."""
+    refused = smtplib.SMTPRecipientsRefused({"x": (550, b"no such user")})
+    script = [refused] * 4 + [None] + [refused] * 4  # 9 items, never 5 in a row
+    smtp = _FakeSMTP(script)
+    conf, contacts, log, connects = _setup(monkeypatch, tmp_path, [smtp], n_contacts=9)
+
+    rc = send_emails.cmd_send(conf, "Hi {company}", "Dear {name}", contacts, set())
+
+    assert rc.aborted is None
+    assert rc.exit_code == 0
+    assert rc.sent == 1
+    assert rc.failed == 8
+    # nothing was cut short -- all 9 contacts were attempted
+    rows = log.read_text()
+    for i in range(9):
+        assert f"p{i}@acme.com" in rows
+
+
+def test_send_single_bad_recipient_among_successes_still_just_logs_and_continues(monkeypatch, tmp_path):
+    """Existing behaviour, unchanged: one refusal is nowhere near the threshold."""
+    refused = smtplib.SMTPRecipientsRefused({"p1@acme.com": (550, b"no such user")})
+    smtp = _FakeSMTP([None, refused, None])
+    conf, contacts, log, connects = _setup(monkeypatch, tmp_path, [smtp])
+
+    rc = send_emails.cmd_send(conf, "Hi {company}", "Dear {name}", contacts, set())
+
+    assert rc.aborted is None
+    assert rc.exit_code == 0
+    assert (rc.sent, rc.failed) == (2, 1)
+
+
+# --- Finding 2b: a contacts file that parses to zero rows must not look like
+# "the whole list is finished" ------------------------------------------------
+
+def test_load_all_rejects_a_contacts_file_that_yields_zero_contacts(tmp_path, monkeypatch):
+    resume = tmp_path / "resume.pdf"; resume.write_text("x")
+    template = tmp_path / "email_template.txt"; template.write_text("Subject: hi\n\nbody")
+    contacts = tmp_path / "contacts.csv"; contacts.write_text("name,email,title,company\n")
+    config = tmp_path / "config.ini"
+    config.write_text(
+        "[gmail]\naddress = a@b.com\napp_password = pw\n"
+        f"[files]\nresume = {resume}\ntemplate = {template}\ncontacts = {contacts}\n"
+    )
+
+    with pytest.raises(ValueError):
+        send_emails._load_all(str(config))

@@ -31,9 +31,35 @@ def write_contacts_csv(path: str, contacts: list) -> None:
 
 
 def load_contacts_csv(path: str) -> list:
+    """Load contacts, refusing a header that doesn't match CSV_FIELDS.
+
+    csv.DictReader otherwise yields None for any column whose name doesn't
+    match -- a capitalised "Email", an "E-mail" typo, or a deleted header row
+    -- so every contact would silently come out with email="" and nothing
+    would ever be pending. Mirrors the header check in sentlog.py for the
+    same reason: a corrupt/mismatched header must be a loud failure, not a
+    silent no-op.
+
+    encoding="utf-8-sig" rather than "utf-8": a spreadsheet-saved CSV commonly
+    carries a leading BOM, which "utf-8" leaves attached to the first header
+    name ("﻿name") and would otherwise fail this exact check even for an
+    otherwise-correct file.
+
+    An empty or missing file is left alone: DictReader.fieldnames is None for
+    an empty file, and a missing path already raises FileNotFoundError from
+    open() before this check runs.
+    """
     out = []
-    with open(path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is not None and reader.fieldnames != CSV_FIELDS:
+            raise ValueError(
+                f"{path} has the wrong header: found {reader.fieldnames!r}, expected "
+                f"{CSV_FIELDS!r}. Open it in a spreadsheet and fix the header row "
+                "(it must be exactly these lowercase column names, in this order) "
+                "before sending."
+            )
+        for row in reader:
             out.append(Contact(
                 name=(row.get("name") or "").strip(),
                 email=(row.get("email") or "").strip(),

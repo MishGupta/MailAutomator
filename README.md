@@ -1,8 +1,9 @@
 # Mail Automator
 
 Send personalized, resume-attached outreach emails to HR contacts from a PDF list,
-in daily batches, from your Gmail account. Already-emailed people are remembered and
-never contacted twice.
+in daily batches, from your Gmail account. Already-emailed people are remembered in
+`sent_log.csv` and are not selected again — see the note below on the one case where
+that guarantee isn't absolute.
 
 ## One-time setup
 
@@ -47,6 +48,9 @@ Open `contacts.csv` in a spreadsheet and remove or fix any rows you don't want.
 - Already-emailed people are recorded in `sent_log.csv` and skipped automatically, so you
   just run `--send` once a day until the list is finished (~1,842 ÷ 400 ≈ 5 days).
 - Send fewer in one run: `--send --limit 200`. `--limit` must be a positive number.
+- **Do not run `--send` by hand while the scheduler (below) is installed.** Both read the
+  same pending list, so a manual run overlapping a scheduled one can re-send to the same
+  50 people before either has recorded the other's results.
 
 ## Run it automatically
 
@@ -58,10 +62,15 @@ Open `contacts.csv` in a spreadsheet and remove or fix any rows you don't want.
 Once installed, 50 emails go out at **10:30 AM, Monday to Friday**, with no action
 from you, until the whole list is finished.
 
-- If the Mac is asleep or off at 10:30, the batch runs as soon as it wakes.
-- If that fails (no wifi, Gmail unreachable), it retries hourly — 11:30, 12:30, and
-  so on — and gives up at **16:00**, leaving the batch for the next weekday. Nobody
-  is ever emailed twice, because `sent_log.csv` is written as each email goes out.
+- If the Mac is asleep or off at 10:30, the batch runs as soon as it wakes — but only if
+  it wakes before **16:00**. A Mac that stays asleep or closed past 16:00 loses that whole
+  day; the batch simply waits for the next weekday.
+- If a run fails (no wifi, Gmail unreachable), it retries hourly — 11:30, 12:30, and
+  so on — up to the same 16:00 cutoff. Each attempt takes a fresh batch of up to 50, so a
+  day with a failed attempt followed by a successful retry can send more than 50 — a
+  realistic worst case is under 300, comfortably inside Gmail's ~500/day limit.
+- An already-emailed contact is not selected again, because `sent_log.csv` is written as
+  each email goes out — the one exception is documented above (reconnect duplicates).
 - A notification tells you the result of each run; `logs/scheduler.log` keeps the
   full history.
 - It stops itself once nothing is left to do: every contact has either been emailed,
@@ -105,5 +114,5 @@ The `[send]` section is optional — omit it and the defaults above are used.
 ## Tests
 
 ```bash
-.venv/bin/pytest -q
+.venv/bin/python -m pytest -q
 ```
