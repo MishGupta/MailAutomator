@@ -130,17 +130,26 @@ spreadsheet, as long as the header matches.
 ./scripts/install_scheduler.sh --uninstall  # turn it off
 ```
 
-Once installed, a batch goes out at **10:30 AM, Monday to Friday**, with no action from
-you, until the whole list is finished.
+Once installed, a batch goes out on weekdays with no action from you, until the whole
+list is finished.
+
+**You do not need to leave your laptop on all day.** The first attempt is at 10:30 AM,
+and if that one does not go through it simply tries again every hour until 16:00. On a
+Mac a missed attempt also fires the moment you next open the lid. In practice, opening
+your laptop at any point during the working day is enough.
+
+**Nothing is ever sent on a Saturday or Sunday.** Weekends are refused in code, not just
+left off the schedule, so even a fire that arrives late (launchd replays a missed Friday
+event on Saturday morning) is turned away. You will see `skipped: weekend` in the log.
 
 - **Do not run `--send` by hand while the scheduler is installed.** Both read the same
   pending list, so a manual run overlapping a scheduled one can re-send to the same
   people before either has recorded the other's results.
-- If the Mac is asleep or off at 10:30, the batch runs as soon as it wakes — but only if
+- If the Mac is asleep or off at 10:30, the batch runs as soon as it wakes, but only if
   it wakes before **16:00**. A Mac that stays closed past 16:00 loses that whole day; the
   batch simply waits for the next weekday.
-- If a run fails (no wifi, mail server unreachable), it retries hourly — 11:30, 12:30,
-  and so on — up to the same 16:00 cutoff.
+- If a run fails (no wifi, mail server unreachable), it retries hourly at 11:30, 12:30,
+  and so on, up to the same 16:00 cutoff. That is 6 chances every weekday.
 - **Each attempt takes a fresh batch of `daily_limit`.** A run only marks the day done
   once it succeeds, so a day with failures can send several batches. With up to 6 fires
   a day, worst-case daily volume is `daily_limit × 6` — at the default 50 that's 300,
