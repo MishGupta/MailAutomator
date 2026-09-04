@@ -4,7 +4,8 @@ import time
 import smtplib
 from dataclasses import dataclass
 
-from mailauto.config import load_config
+from mailauto.config import (load_config, DEFAULT_SMTP_HOST,
+                             DEFAULT_SMTP_PORT)
 from mailauto.parsing import load_contacts_csv
 from mailauto.templating import parse_template, render, strip_bold, to_html
 from mailauto.sentlog import load_sent, load_done, append_result
@@ -38,26 +39,46 @@ class ConnectionProblem(Exception):
     """A connection or auth failure, phrased in terms the user can act on."""
 
 
+def _smtp_target(conf):
+    """(host, port) for this config, tolerating configs that predate them."""
+    return (getattr(conf, "smtp_host", DEFAULT_SMTP_HOST),
+            getattr(conf, "smtp_port", DEFAULT_SMTP_PORT))
+
+
+def _auth_hint(host):
+    """Provider-specific advice for a rejected login.
+
+    Gmail's App Password requirement is its own; naming it for an Outlook user
+    would send them hunting for a setting that does not exist there.
+    """
+    if "gmail" in host:
+        return ("It must be a 16-character App Password (2-Step Verification "
+                "required), not your normal Gmail password.")
+    return ("Many providers require an app-specific password rather than your "
+            "normal one; check your provider's SMTP documentation.")
+
+
 def connect_or_explain(conf):
-    """Connect to Gmail, announcing progress first.
+    """Connect to the configured SMTP server, announcing progress first.
 
     Connecting takes a couple of seconds; without output the terminal looks
     frozen and users interrupt it. OSError covers socket timeouts and DNS/
     network failures; SMTPException covers protocol-level ones.
     """
-    print(f"Connecting to Gmail as {conf.address} ...", flush=True)
+    host, port = _smtp_target(conf)
+    print(f"Connecting to {host} as {conf.address} ...", flush=True)
     try:
-        smtp = mailer.connect(conf.address, conf.app_password)
+        smtp = mailer.connect(conf.address, conf.app_password,
+                              host=host, port=port)
     except smtplib.SMTPAuthenticationError:
         raise ConnectionProblem(
-            "Gmail rejected the login. Check app_password in config.ini — it must be a "
-            "16-character App Password (2-Step Verification required), not your normal "
-            "Gmail password."
+            f"{host} rejected the login. Check app_password in config.ini — "
+            + _auth_hint(host)
         )
     except (OSError, smtplib.SMTPException) as e:
         raise ConnectionProblem(
-            f"Could not reach Gmail ({type(e).__name__}: {e}). Check your internet "
-            "connection, or whether this network blocks outbound port 587."
+            f"Could not reach {host} ({type(e).__name__}: {e}). Check your internet "
+            f"connection, or whether this network blocks outbound port {port}."
         )
     print("Connected.", flush=True)
     return smtp
@@ -141,7 +162,9 @@ def send_with_reconnect(smtp, conf, msg, attempts=RECONNECT_ATTEMPTS):
                 pass  # already dead; nothing to salvage
             time.sleep(backoff)
             try:
-                smtp = mailer.connect(conf.address, conf.app_password)
+                _host, _port = _smtp_target(conf)
+                smtp = mailer.connect(conf.address, conf.app_password,
+                                      host=_host, port=_port)
                 print("  reconnected.", flush=True)
             except CONNECTION_ERRORS + (smtplib.SMTPException,) as ce:
                 print(f"  reconnect failed ({ce}).", flush=True)

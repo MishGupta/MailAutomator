@@ -75,3 +75,21 @@ def test_connect_and_send(monkeypatch):
     m = M(); m["To"] = "hr@acme.com"
     mailer.send(smtp, m)
     assert ("send_message", "hr@acme.com") in _FakeSMTP.calls
+
+
+def test_connect_uses_configured_host_and_port(monkeypatch):
+    """A non-Gmail provider must be reachable without editing source."""
+    _FakeSMTP.calls = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    mailer.connect("me@outlook.com", "pw",
+                   host="smtp-mail.outlook.com", port=587)
+    assert ("init", "smtp-mail.outlook.com", 587, 30) in _FakeSMTP.calls
+    assert ("login", "me@outlook.com", "pw") in _FakeSMTP.calls
+
+
+def test_connect_defaults_to_gmail(monkeypatch):
+    """Omitting host/port keeps the original Gmail behaviour."""
+    _FakeSMTP.calls = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    mailer.connect("me@gmail.com", "pw")
+    assert ("init", "smtp.gmail.com", 587, 30) in _FakeSMTP.calls

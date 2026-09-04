@@ -3,6 +3,8 @@ import os
 import smtplib
 from email.message import EmailMessage
 
+from mailauto.config import DEFAULT_SMTP_HOST, DEFAULT_SMTP_PORT
+
 
 def build_message(from_addr, to_addr, subject, body, resume_path, cc_self=None,
                   html_body=None):
@@ -31,8 +33,14 @@ def build_message(from_addr, to_addr, subject, body, resume_path, cc_self=None,
 SMTP_TIMEOUT = 30
 
 
-def connect(address, app_password, timeout=SMTP_TIMEOUT):
-    smtp = smtplib.SMTP("smtp.gmail.com", 587, timeout=timeout)
+def connect(address, app_password, timeout=SMTP_TIMEOUT,
+            host=DEFAULT_SMTP_HOST, port=DEFAULT_SMTP_PORT):
+    """Open an authenticated STARTTLS connection to any SMTP provider.
+
+    host/port default to Gmail so callers predating multi-provider support --
+    and config.ini files with no host key -- keep working unchanged.
+    """
+    smtp = smtplib.SMTP(host, port, timeout=timeout)
     smtp.starttls()
     smtp.login(address, app_password)
     return smtp

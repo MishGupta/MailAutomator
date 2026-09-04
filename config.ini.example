@@ -1,6 +1,13 @@
-[gmail]
+; Copy this file to config.ini and fill it in. config.ini is gitignored.
+; Comments must be on their own line: configparser does NOT strip trailing
+; comments, so "daily_limit = 50  ; note" would be read as the whole string.
+
+[smtp]
 address = you@gmail.com
 app_password = xxxx xxxx xxxx xxxx
+; host and port default to Gmail. For another provider, uncomment and edit:
+; host = smtp-mail.outlook.com
+; port = 587
 
 [files]
 resume = resume.pdf
@@ -8,6 +15,9 @@ template = email_template.txt
 contacts = contacts.csv
 
 [send]
-daily_limit = 400
+; Per-run cap. The scheduler may fire up to 6 times a day, and a failed run
+; is retried with a fresh batch, so worst-case daily volume is this x 6.
+; 50 x 6 = 300, safely under the ~500/day a free Gmail account allows.
+daily_limit = 50
 delay_seconds = 2
 cc_self = false

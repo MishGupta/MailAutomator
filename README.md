@@ -1,7 +1,8 @@
 # Mail Automator
 
-Send personalized, resume-attached outreach emails from your own Gmail account, in
-daily batches, working down a contact list you already have.
+Send personalized, resume-attached outreach emails from your own email account, in
+daily batches, working down a contact list you already have. Works with Gmail,
+Outlook, Yahoo, Zoho, or any provider that speaks SMTP.
 
 You point it at a PDF of contacts (the kind of table a recruiter list or a career-fair
 handout usually comes as), it pulls out name / email / title / company, and then sends
@@ -26,7 +27,9 @@ internship drives, freelance pitches, conference or academic outreach.
 ## Requirements
 
 - **Python 3.9+**
-- **A Gmail account** with 2-Step Verification enabled (you'll create an App Password)
+- **An email account you can send from** — Gmail, Outlook, Yahoo, Zoho, your own
+  domain, anything with SMTP. Gmail is the default and needs 2-Step Verification
+  enabled so you can create an App Password.
 - **Your contacts as a PDF** containing a table with an email column
 - **Your resume** as a PDF
 
@@ -42,9 +45,24 @@ cd MailAutomator
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
-**1. Create a Gmail App Password.** Turn on 2-Step Verification on the account you'll
-send from, then generate an App Password at https://myaccount.google.com/apppasswords —
-a 16-character code. Use that, **not** your normal Gmail password.
+**1. Get an app password for your email account.**
+
+*Gmail:* turn on 2-Step Verification, then generate an App Password at
+https://myaccount.google.com/apppasswords — a 16-character code. Use that, **not** your
+normal Gmail password.
+
+*Other providers:* most require an app-specific password too. You'll also need your
+provider's SMTP host and port:
+
+| Provider | host | port |
+|---|---|---|
+| Gmail | `smtp.gmail.com` | 587 |
+| Outlook / Hotmail | `smtp-mail.outlook.com` | 587 |
+| Yahoo | `smtp.mail.yahoo.com` | 587 |
+| Zoho | `smtp.zoho.com` | 587 |
+
+Anything else: search your provider's docs for "SMTP settings". Ports other than 587 are
+fine as long as the server supports STARTTLS.
 
 **2. Fill in your config.**
 
@@ -52,8 +70,9 @@ a 16-character code. Use that, **not** your normal Gmail password.
 cp config.ini.example config.ini
 ```
 
-Set `address` and `app_password` under `[gmail]`. This file is gitignored and must
-never be committed.
+Set `address` and `app_password` under `[smtp]`. If you're not on Gmail, also set
+`host` and `port` from the table above. This file is gitignored and must never be
+committed.
 
 **3. Add your resume.** Drop it in the folder as `resume.pdf`, or point `resume` in
 `config.ini` at another path.
@@ -120,27 +139,32 @@ you, until the whole list is finished.
 - If the Mac is asleep or off at 10:30, the batch runs as soon as it wakes — but only if
   it wakes before **16:00**. A Mac that stays closed past 16:00 loses that whole day; the
   batch simply waits for the next weekday.
-- If a run fails (no wifi, Gmail unreachable), it retries hourly — 11:30, 12:30, and so
-  on — up to the same 16:00 cutoff. Each attempt takes a fresh batch, so a day with a
-  failed attempt followed by a successful retry can send more than one batch's worth.
-  With the default 50/day the realistic worst case is under 300, comfortably inside
-  Gmail's ~500/day limit.
+- If a run fails (no wifi, mail server unreachable), it retries hourly — 11:30, 12:30,
+  and so on — up to the same 16:00 cutoff.
+- **Each attempt takes a fresh batch of `daily_limit`.** A run only marks the day done
+  once it succeeds, so a day with failures can send several batches. With up to 6 fires
+  a day, worst-case daily volume is `daily_limit × 6` — at the default 50 that's 300,
+  safely under Gmail's ~500/day cap. **If you raise `daily_limit`, multiply by 6 and
+  check the result against your provider's limit**; exceeding it can get your account
+  suspended.
 - A notification tells you the result of each run; `logs/scheduler.log` keeps the full
   history.
 - It stops itself once nothing is left to do: every contact has either been emailed, or
   — after 3 failed tries — given up on. You get a notification saying how many (if any)
   couldn't be reached, and the scheduler switches itself off.
 
-**One known edge case:** if Gmail drops the connection in the instant between accepting
+**One known edge case:** if the server drops the connection in the instant between accepting
 a message and confirming it, that message is re-sent on reconnect and that person
 receives it twice. Sending twice was judged better than never contacting them at all.
 
 ## Config reference (`config.ini`)
 
 ```ini
-[gmail]
+[smtp]
 address = you@gmail.com
 app_password = xxxx xxxx xxxx xxxx
+host = smtp.gmail.com
+port = 587
 
 [files]
 resume = resume.pdf
@@ -148,12 +172,26 @@ template = email_template.txt
 contacts = contacts.csv
 
 [send]
-daily_limit = 50       ; per-run cap (Gmail free accounts allow ~500/day)
-delay_seconds = 2      ; pause between emails
-cc_self = false        ; set true to Cc yourself on every email
+daily_limit = 50
+delay_seconds = 2
+cc_self = false
 ```
 
-The `[send]` section is optional — omit it and the defaults above are used.
+| key | meaning |
+|---|---|
+| `host` / `port` | SMTP server. Optional; defaults to Gmail. |
+| `daily_limit` | Per-run cap. Default 50 — see the warning below before raising it. |
+| `delay_seconds` | Pause between emails. Default 2. |
+| `cc_self` | Set `true` to Cc yourself on every email. Default false. |
+
+Both `[send]` and the `host`/`port` keys are optional — omit them and the defaults above
+are used.
+
+**Put comments on their own line.** `configparser` does not strip trailing comments, so
+`daily_limit = 50  ; per-run cap` is read as the literal string and the run fails.
+
+A `[gmail]` section is still accepted in place of `[smtp]`, so config files written for
+earlier versions keep working.
 
 ## Responsible use
 
@@ -165,9 +203,9 @@ for outreach you'd be comfortable sending by hand:
 - **Honor opt-outs immediately.** If someone asks not to be contacted, remove them from
   `contacts.csv` — and note that once someone is in `sent_log.csv` they're never
   selected again anyway.
-- **Stay inside Gmail's limits.** Free accounts cap around 500 sends/day, Workspace
-  around 2,000. Keep `daily_limit` well under your cap; exceeding it can get your
-  account temporarily suspended.
+- **Stay inside your provider's limits.** Free Gmail caps around 500 sends/day, Workspace
+  around 2,000. Remember the scheduler's `daily_limit × 6` worst case when choosing
+  a value; exceeding your provider's cap can get the account temporarily suspended.
 - **Personalize properly.** A template that obviously wasn't read by a human gets
   reported as spam, which hurts your sending reputation more than it helps.
 
@@ -176,8 +214,12 @@ jurisdiction (CAN-SPAM, GDPR, and equivalents).
 
 ## Troubleshooting
 
-- **Gmail rejects the login** — almost always a wrong App Password or 2-Step
-  Verification not enabled. Regenerate the App Password and paste all 16 characters.
+- **The server rejects the login** — on Gmail this is almost always a wrong App
+  Password or 2-Step Verification not enabled; regenerate it and paste all 16
+  characters. On other providers, check that you're using an app-specific password and
+  that `host`/`port` match your provider's SMTP settings.
+- **`invalid literal for int()` on startup** — you have a trailing `;` comment in
+  `config.ini`. Move it to its own line.
 - **`contacts.csv has the wrong header`** — the header row must be exactly
   `name,email,title,company`, lowercase, in that order. Spreadsheets often capitalize
   or reorder them on save.

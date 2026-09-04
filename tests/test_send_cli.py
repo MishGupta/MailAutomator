@@ -15,14 +15,14 @@ def _conf():
 
 def test_connect_or_explain_returns_smtp_and_reports_progress(monkeypatch, capsys):
     sentinel = object()
-    monkeypatch.setattr(send_emails.mailer, "connect", lambda a, p: sentinel)
+    monkeypatch.setattr(send_emails.mailer, "connect", lambda a, p, **kw: sentinel)
     assert connect_or_explain(_conf()) is sentinel
     # silence is what made a 2s connect look like a hang
-    assert "Connecting to Gmail" in capsys.readouterr().out
+    assert "Connecting to smtp.gmail.com" in capsys.readouterr().out
 
 
 def test_connect_or_explain_auth_error_is_friendly(monkeypatch):
-    def boom(addr, pw):
+    def boom(addr, pw, **kw):
         raise smtplib.SMTPAuthenticationError(535, b"bad creds")
     monkeypatch.setattr(send_emails.mailer, "connect", boom)
     with pytest.raises(ConnectionProblem) as e:
@@ -31,16 +31,16 @@ def test_connect_or_explain_auth_error_is_friendly(monkeypatch):
 
 
 def test_connect_or_explain_timeout_is_friendly(monkeypatch):
-    def boom(addr, pw):
+    def boom(addr, pw, **kw):
         raise TimeoutError("timed out")
     monkeypatch.setattr(send_emails.mailer, "connect", boom)
     with pytest.raises(ConnectionProblem) as e:
         connect_or_explain(_conf())
-    assert "could not reach gmail" in str(e.value).lower()
+    assert "could not reach smtp.gmail.com" in str(e.value).lower()
 
 
 def test_connect_or_explain_network_error_is_friendly(monkeypatch):
-    def boom(addr, pw):
+    def boom(addr, pw, **kw):
         raise OSError("network is down")
     monkeypatch.setattr(send_emails.mailer, "connect", boom)
     with pytest.raises(ConnectionProblem):
@@ -116,7 +116,7 @@ def _setup(monkeypatch, tmp_path, smtps, n_contacts=3, connect_fails_after=None)
     sessions = list(smtps)
     connects = []
 
-    def fake_connect(addr, pw):
+    def fake_connect(addr, pw, **kw):
         connects.append(addr)
         if connect_fails_after is not None and len(connects) > connect_fails_after:
             raise smtplib.SMTPServerDisconnected("cannot reach gmail")
@@ -312,3 +312,26 @@ def test_load_all_rejects_a_contacts_file_that_yields_zero_contacts(tmp_path, mo
 
     with pytest.raises(ValueError):
         send_emails._load_all(str(config))
+
+
+def test_connect_or_explain_uses_configured_smtp_server(monkeypatch, capsys):
+    """A configured non-Gmail host must actually be dialled.
+
+    Regression guard: config.py could parse host/port correctly while
+    send_emails still hardcoded Gmail, so an Outlook user would authenticate
+    against the wrong server with no hint why.
+    """
+    seen = {}
+
+    def fake_connect(addr, pw, host=None, port=None):
+        seen.update(addr=addr, host=host, port=port)
+        return object()
+
+    monkeypatch.setattr(send_emails.mailer, "connect", fake_connect)
+    conf = SimpleNamespace(address="me@outlook.com", app_password="pw",
+                           smtp_host="smtp-mail.outlook.com", smtp_port=587)
+    connect_or_explain(conf)
+    assert seen["host"] == "smtp-mail.outlook.com"
+    assert seen["port"] == 587
+    # The progress line must not claim Gmail when it is not Gmail.
+    assert "Gmail" not in capsys.readouterr().out
