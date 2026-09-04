@@ -1,88 +1,139 @@
 # Mail Automator
 
-Send personalized, resume-attached outreach emails to HR contacts from a PDF list,
-in daily batches, from your Gmail account. Already-emailed people are recorded in
-`sent_log.csv` and are never selected again.
+Send personalized, resume-attached outreach emails from your own Gmail account, in
+daily batches, working down a contact list you already have.
 
-## One-time setup
+You point it at a PDF of contacts (the kind of table a recruiter list or a career-fair
+handout usually comes as), it pulls out name / email / title / company, and then sends
+each person an individually personalized email with your resume attached. Everyone it
+emails is recorded, so nobody is ever contacted twice — even if you stop halfway and
+pick it up a week later.
 
-1. Install dependencies:
-   ```bash
-   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-   ```
-2. Turn on 2-Step Verification on the Gmail account you'll send from, then create an
-   **App Password** at https://myaccount.google.com/apppasswords (a 16-character code).
-   Use that, NOT your normal Gmail password.
-3. Copy the example config and fill it in:
-   ```bash
-   cp config.ini.example config.ini
-   ```
-   Set `address` (e.g. `infogupta007@gmail.com`) and `app_password` under `[gmail]`.
-4. Put your resume in the folder (default name `resume.pdf`, or point `resume` in
-   `config.ini` at another file).
-5. Edit `email_template.txt`. Keep the `Subject:` first line, then a blank line, then
-   the body. Use `{name}`, `{company}`, `{title}`, `{email}` anywhere you want that
-   contact's real value inserted.
+Built for a job search, but it works for any outreach you'd otherwise do by hand:
+internship drives, freelance pitches, conference or academic outreach.
 
-## Build the contact list (run once)
+**What makes it different from a mail-merge script:**
+
+- **Resumable by design.** Progress lives in `sent_log.csv`, written as each email goes
+  out. Kill it mid-run, reboot, come back next month — it picks up exactly where it
+  stopped and never re-sends.
+- **Nothing sends by accident.** The default action is a preview. You have to pass
+  `--send` explicitly, and there's a `--test` mode that mails only you.
+- **It can run itself.** An optional scheduler sends a batch every weekday morning,
+  retries when your wifi is down, notifies you of each result, and switches itself off
+  when the list is finished. *(macOS only — see below.)*
+
+## Requirements
+
+- **Python 3.9+**
+- **A Gmail account** with 2-Step Verification enabled (you'll create an App Password)
+- **Your contacts as a PDF** containing a table with an email column
+- **Your resume** as a PDF
+
+Sending works on **macOS, Linux, and Windows**. The automatic scheduler is
+**macOS only** — it's built on launchd. On Linux or Windows you run the send command
+yourself (or wire it into cron / Task Scheduler).
+
+## Setup
 
 ```bash
-.venv/bin/python import_contacts.py      # HR_Contact_List.pdf -> contacts.csv
+git clone https://github.com/MishGupta/MailAutomator.git
+cd MailAutomator
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
-Open `contacts.csv` in a spreadsheet and remove or fix any rows you don't want.
+**1. Create a Gmail App Password.** Turn on 2-Step Verification on the account you'll
+send from, then generate an App Password at https://myaccount.google.com/apppasswords —
+a 16-character code. Use that, **not** your normal Gmail password.
 
-## Send (repeat daily until done)
+**2. Fill in your config.**
+
+```bash
+cp config.ini.example config.ini
+```
+
+Set `address` and `app_password` under `[gmail]`. This file is gitignored and must
+never be committed.
+
+**3. Add your resume.** Drop it in the folder as `resume.pdf`, or point `resume` in
+`config.ini` at another path.
+
+**4. Write your email.** Edit `email_template.txt`. Keep the `Subject:` line first, then
+a blank line, then the body. Use `{name}`, `{company}`, `{title}`, and `{email}`
+anywhere you want that contact's real value substituted in.
+
+```
+Subject: Application for openings at {company}
+
+Hi {name},
+
+I came across your profile as {title} at {company} and wanted to reach out...
+```
+
+## Build your contact list
+
+```bash
+.venv/bin/python import_contacts.py --pdf your_list.pdf   # -> contacts.csv
+```
+
+The parser looks for an email address in each table row and works out name, title, and
+company from the surrounding cells, so it handles most contact-table layouts rather than
+one specific format. `--pdf` defaults to `contacts.pdf` and `--out` defaults to
+`contacts.csv`.
+
+**Open `contacts.csv` in a spreadsheet afterwards and check it.** Fix anything the
+parser got wrong and delete rows you don't want to contact. Keep the header row exactly
+as it is — `name,email,title,company` — the tool refuses to run if it's been altered.
+
+You can also skip the PDF entirely and write `contacts.csv` by hand, or export it from a
+spreadsheet, as long as the header matches.
+
+## Send
 
 ```bash
 .venv/bin/python send_emails.py --preview   # show 3 finished sample emails (sends NOTHING)
-.venv/bin/python send_emails.py --test      # send ONE test email to yourself first
+.venv/bin/python send_emails.py --test      # send ONE test email to yourself
 .venv/bin/python send_emails.py --dry-run   # counts: total / already sent / pending / would-send
-.venv/bin/python send_emails.py --send      # send today's batch (50 by default), then stop
+.venv/bin/python send_emails.py --send      # send today's batch, then stop
 ```
 
-- `--preview` is the default, so running with no flag never sends.
-- Do `--test` at least once and check the email arrived (formatting + attachment) before
-  your first real `--send`.
-- Already-emailed people are recorded in `sent_log.csv` and skipped automatically, so you
-  just run `--send` once a day until the list is finished. At the configured 50/day
-  that is about 30 weekdays for the 1,502 still outstanding — or let the scheduler
-  below do it for you.
-- Send fewer in one run: `--send --limit 200`. `--limit` must be a positive number.
-- **Do not run `--send` by hand while the scheduler (below) is installed.** Both read the
-  same pending list, so a manual run overlapping a scheduled one can re-send to the same
-  50 people before either has recorded the other's results.
+- `--preview` is the default, so running with no flag never sends anything.
+- **Do `--test` at least once** and check the email actually arrived — formatting and
+  attachment — before your first real `--send`.
+- Send fewer in one run with `--send --limit 20`. `--limit` must be a positive number.
+- Already-emailed people are skipped automatically, so you just run `--send` once a day
+  until the list is finished. Check progress any time with `--dry-run`.
 
-## Run it automatically
+## Run it automatically (macOS only)
 
 ```bash
 ./scripts/install_scheduler.sh              # turn it on
 ./scripts/install_scheduler.sh --uninstall  # turn it off
 ```
 
-Once installed, 50 emails go out at **10:30 AM, Monday to Friday**, with no action
-from you, until the whole list is finished.
+Once installed, a batch goes out at **10:30 AM, Monday to Friday**, with no action from
+you, until the whole list is finished.
 
+- **Do not run `--send` by hand while the scheduler is installed.** Both read the same
+  pending list, so a manual run overlapping a scheduled one can re-send to the same
+  people before either has recorded the other's results.
 - If the Mac is asleep or off at 10:30, the batch runs as soon as it wakes — but only if
-  it wakes before **16:00**. A Mac that stays asleep or closed past 16:00 loses that whole
-  day; the batch simply waits for the next weekday.
-- If a run fails (no wifi, Gmail unreachable), it retries hourly — 11:30, 12:30, and
-  so on — up to the same 16:00 cutoff. Each attempt takes a fresh batch of up to 50, so a
-  day with a failed attempt followed by a successful retry can send more than 50 — a
-  realistic worst case is under 300, comfortably inside Gmail's ~500/day limit.
-- An already-emailed contact is not selected again, because `sent_log.csv` is written as
-  each email goes out. There is one rare exception: if Gmail drops the connection in the
-  instant between accepting a message and confirming it, that message is re-sent on the
-  reconnect and that person receives it twice. Sending twice was judged better than
-  never contacting them at all.
-- A notification tells you the result of each run; `logs/scheduler.log` keeps the
-  full history.
-- It stops itself once nothing is left to do: every contact has either been emailed,
-  or — after 3 failed tries — given up on. When that happens, you get a notification
-  saying how many (if any) could not be reached, and the scheduler switches itself
-  off.
+  it wakes before **16:00**. A Mac that stays closed past 16:00 loses that whole day; the
+  batch simply waits for the next weekday.
+- If a run fails (no wifi, Gmail unreachable), it retries hourly — 11:30, 12:30, and so
+  on — up to the same 16:00 cutoff. Each attempt takes a fresh batch, so a day with a
+  failed attempt followed by a successful retry can send more than one batch's worth.
+  With the default 50/day the realistic worst case is under 300, comfortably inside
+  Gmail's ~500/day limit.
+- A notification tells you the result of each run; `logs/scheduler.log` keeps the full
+  history.
+- It stops itself once nothing is left to do: every contact has either been emailed, or
+  — after 3 failed tries — given up on. You get a notification saying how many (if any)
+  couldn't be reached, and the scheduler switches itself off.
 
-Check progress at any time with `.venv/bin/python send_emails.py --dry-run`.
+**One known edge case:** if Gmail drops the connection in the instant between accepting
+a message and confirming it, that message is re-sent on reconnect and that person
+receives it twice. Sending twice was judged better than never contacting them at all.
 
 ## Config reference (`config.ini`)
 
@@ -104,19 +155,53 @@ cc_self = false        ; set true to Cc yourself on every email
 
 The `[send]` section is optional — omit it and the defaults above are used.
 
-## Notes
+## Responsible use
 
-- `config.ini`, `sent_log.csv`, `contacts.csv`, and `resume.pdf` are gitignored — they
-  hold secrets or personal data and should never be committed.
-- Gmail free accounts cap at ~500 sends/day; Google Workspace accounts ~2,000. Keep
-  `daily_limit` under your cap.
-- If Gmail rejects the login, the tool tells you plainly — it almost always means the
-  App Password is wrong or 2-Step Verification isn't enabled.
-- If `sent_log.csv` ever gets corrupted, the tool refuses to send rather than risk
-  emailing people twice; inspect/repair the file and re-run.
+This sends real email to real people from your own account, under your own name. Use it
+for outreach you'd be comfortable sending by hand:
+
+- **Contact people you have a genuine reason to contact.** Don't use scraped or
+  purchased lists.
+- **Honor opt-outs immediately.** If someone asks not to be contacted, remove them from
+  `contacts.csv` — and note that once someone is in `sent_log.csv` they're never
+  selected again anyway.
+- **Stay inside Gmail's limits.** Free accounts cap around 500 sends/day, Workspace
+  around 2,000. Keep `daily_limit` well under your cap; exceeding it can get your
+  account temporarily suspended.
+- **Personalize properly.** A template that obviously wasn't read by a human gets
+  reported as spam, which hurts your sending reputation more than it helps.
+
+You're responsible for how you use this, including compliance with anti-spam law in your
+jurisdiction (CAN-SPAM, GDPR, and equivalents).
+
+## Troubleshooting
+
+- **Gmail rejects the login** — almost always a wrong App Password or 2-Step
+  Verification not enabled. Regenerate the App Password and paste all 16 characters.
+- **`contacts.csv has the wrong header`** — the header row must be exactly
+  `name,email,title,company`, lowercase, in that order. Spreadsheets often capitalize
+  or reorder them on save.
+- **The parser found no contacts** — your PDF's table may not be machine-readable
+  (a scanned image, for instance). Check with
+  `.venv/bin/python -c "import pdfplumber; print(pdfplumber.open('your_list.pdf').pages[0].extract_tables()[0][:3])"`.
+  If that prints nothing, build `contacts.csv` by hand instead.
+- **It refuses to send, citing `sent_log.csv`** — that's deliberate. A corrupted log
+  means it can't tell who's already been emailed, and it stops rather than risk
+  double-sending. Inspect and repair the file, then re-run.
+
+## Files it creates
+
+`config.ini`, `contacts.csv`, `sent_log.csv`, `resume.pdf`, and `logs/` are all
+gitignored. They hold your credentials and other people's personal data — don't commit
+them.
 
 ## Tests
 
 ```bash
 .venv/bin/python -m pytest -q
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE). Free to use, modify, and distribute; just keep the
+copyright notice.

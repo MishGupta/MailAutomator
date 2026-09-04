@@ -7,7 +7,7 @@ from mailauto.parsing import parse_pdf, write_contacts_csv
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Extract HR contacts from a PDF into contacts.csv")
-    ap.add_argument("--pdf", default="HR_Contact_List.pdf", help="input PDF path")
+    ap.add_argument("--pdf", default="contacts.pdf", help="input PDF path")
     ap.add_argument("--out", default="contacts.csv", help="output CSV path")
     args = ap.parse_args(argv)
 

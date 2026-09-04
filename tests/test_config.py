@@ -6,7 +6,7 @@ def _write_config(tmp_path, resume, template, contacts, extra="daily_limit = 250
     cfg = tmp_path / "config.ini"
     cfg.write_text(
         "[gmail]\n"
-        "address = infogupta007@gmail.com\n"
+        "address = you@gmail.com\n"
         "app_password = abcd efgh ijkl mnop\n"
         "[files]\n"
         f"resume = {resume}\n"
@@ -25,7 +25,7 @@ def test_load_config_ok(tmp_path):
     cfg = _write_config(tmp_path, r, t, c)
     conf = load_config(str(cfg))
     assert isinstance(conf, Config)
-    assert conf.address == "infogupta007@gmail.com"
+    assert conf.address == "you@gmail.com"
     assert conf.app_password == "abcd efgh ijkl mnop"
     assert conf.daily_limit == 250
     assert conf.delay_seconds == 1.5
