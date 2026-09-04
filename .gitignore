@@ -4,7 +4,12 @@ sent_log.csv
 contacts.csv
 *.resume.pdf
 resume.pdf
+HR_Contact_List.pdf
+Mishka_Gupta_Resume.pdf
 logs/
+
+# macOS
+.DS_Store
 
 # python
 .venv/
